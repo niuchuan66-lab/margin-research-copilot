@@ -14,7 +14,7 @@
 |---|---|---|
 | PDF 管理与细粒度解析、语义去重 | `/library` | `POST /api/v1/papers`、`POST /api/v1/papers/{id}/parse` |
 | 抗幻觉 RAG 与多文推理 | `/chat`、`/reader/:id` | `POST /api/v1/qa/ask`、`/qa/stream`、`/agent/run` |
-| 版式阅读、引用跳转、双语联动 | `/reader/:id` | `GET /reader/{id}/anchors`、`POST /reader/translate` |
+| 版式阅读、引用跳转、双语联动 | `/reader/:id` | `GET /reader/{id}/anchors`、`POST /reader/translate`、`/reader/translate-text` |
 | 论文检索、追踪与推荐 | `/discovery` | `POST /discovery/search`、`/discovery/recommend` |
 | 引用图谱、基石节点、综述 | `/graph` | `POST /graph/build`、`POST /graph/{id}/survey` |
 | 写作辅助、图脚本、CSV 出图 | `/writing` | `POST /writing/outline`、`/writing/figure`、`/writing/chart` |
@@ -320,6 +320,16 @@ python scripts/eval_golden.py --legacy   # A/B 对比旧的重叠检索
 - **SSE 过程**：`plan → tool_start/tool_result* → answer → citations → done`，前端实时追加工具名、参数摘要与结果摘要到过程面板，不展示内部数据；
 - **去书架**：`arxiv.download` 成功后自动解析入库（后台任务），回答中给出「去书架查看」入口；
 - **占位符**：计划支持 `$graph_id` 等上一步产出引用（如 `graph.build → graph.survey`）。
+
+## 阅读交互
+
+阅读页采用「PDF 左 + 双语右」双栏（<1100px 回退为上下布局）：
+
+- **双语对照**：右侧按页码分组展示原文块与译文，可逐页翻译并累积（跨页保留）；未配置 LLM 时逐块提示，不整页报错；
+- **同步滚动**：PDF 翻页时右侧自动定位到对应页码分组；手动滚动右侧分组时经 `IntersectionObserver` 反驱 PDF 翻页（`syncing` 抑制回环）；
+- **正文 `[n]` 引用**：原文中的 `[数字]` 渲染为按钮，点击后滚动参考文献面板并高亮对应条目；条目带 bbox 时同步跳转 PDF 页并高亮；
+- **悬停翻译**：鼠标在未翻译原文块停留 500ms 即出 popover 译文（`translate-text`），结果按文本哈希缓存，同一段不重复请求，失败可点重试；
+- **局部翻译**：选中或粘贴文本翻译，与悬停翻译共用缓存。
 
 ## 测试数据
 

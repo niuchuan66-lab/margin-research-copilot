@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
 import AgentTrace from '@/components/AgentTrace.vue'
+import BilingualPane from '@/components/BilingualPane.vue'
 import CitationChip from '@/components/CitationChip.vue'
 import PdfViewer from '@/components/PdfViewer.vue'
 import { api } from '@/api/endpoints'
@@ -45,10 +46,7 @@ const loading = ref(false)
 const failure = ref('')
 const translations = ref<TranslatedBlock[]>([])
 const translating = ref(false)
-const selectionText = ref('')
-const selectionTranslation = ref('')
-const selectionStatus = ref('')
-const translatingSelection = ref(false)
+const highlightRefId = ref('')
 const versions = ref<DedupCandidate[]>([])
 const diffOpen = ref(false)
 const diffTarget = ref('')
@@ -71,11 +69,6 @@ const groupedChanges = computed(() => {
 const paperId = computed(() => String(route.params.id ?? ''))
 const pageBlocks = ref<Block[]>([])
 let pageRequest = 0
-const notConfigured = computed(
-  () =>
-    translations.value.length > 0 &&
-    translations.value.every((item) => item.status === 'not_configured'),
-)
 
 async function load(): Promise<void> {
   if (!paperId.value) {
@@ -98,6 +91,8 @@ async function load(): Promise<void> {
     diffTarget.value = ''
     diff.value = null
     diffError.value = ''
+    translations.value = []
+    highlightRefId.value = ''
     const queryPage = Number(route.query.page)
     page.value = Number.isFinite(queryPage) && queryPage > 0 ? queryPage : 1
     await loadPageBlocks()
@@ -199,29 +194,11 @@ async function ask(): Promise<void> {
   }
 }
 
-function captureSelection(): void {
-  const selected = window.getSelection()?.toString().trim() ?? ''
-  if (selected.length >= 2 && selected.length <= 1200) {
-    selectionText.value = selected
-  }
-}
-
-async function translateSelection(): Promise<void> {
-  const text = selectionText.value.trim()
-  if (!text || translatingSelection.value) {
-    return
-  }
-  translatingSelection.value = true
-  selectionStatus.value = ''
-  try {
-    const result = await api.translateText(text)
-    selectionTranslation.value = result.translation ?? ''
-    selectionStatus.value = result.status
-  } catch (error) {
-    selectionStatus.value = errorMessage(error)
-  } finally {
-    translatingSelection.value = false
-  }
+async function translateTextForHover(
+  text: string,
+): Promise<{ translation: string | null; status: string }> {
+  const result = await api.translateText(text)
+  return { translation: result.translation, status: result.status }
 }
 
 async function translatePage(): Promise<void> {
@@ -235,15 +212,43 @@ async function translatePage(): Promise<void> {
   translating.value = true
   failure.value = ''
   try {
-    translations.value = await api.translate(
+    const results = await api.translate(
       paperId.value,
       blocks.map((block) => block.id),
     )
+    const translatedIds = new Set(results.map((item) => item.block_id))
+    translations.value = [
+      ...translations.value.filter((item) => !translatedIds.has(item.block_id)),
+      ...results,
+    ]
   } catch (error) {
     failure.value = errorMessage(error)
   } finally {
     translating.value = false
   }
+}
+
+function syncPage(target: number): void {
+  goTo(target)
+}
+
+function jumpReference(index: number): void {
+  const item = references.value.find((ref) => ref.index === index)
+  if (!item) {
+    return
+  }
+  highlightRefId.value = item.block_id
+  window.setTimeout(() => {
+    if (highlightRefId.value === item.block_id) {
+      highlightRefId.value = ''
+    }
+  }, 1800)
+  const element = document.getElementById(`ref-${item.block_id}`)
+  const list = element?.closest<HTMLElement>('.ref-list')
+  if (element && list) {
+    list.scrollTop += element.getBoundingClientRect().top - list.getBoundingClientRect().top - 8
+  }
+  selectReference(item)
 }
 
 function openDiffPanel(): void {
@@ -346,8 +351,10 @@ function trimmedChangeText(change: VersionChange): string {
         <div class="outline-list ref-list">
           <button
             v-for="item in references"
+            :id="`ref-${item.block_id}`"
             :key="item.block_id"
             class="outline-item ref-item"
+            :class="{ 'ref-flash': highlightRefId === item.block_id }"
             type="button"
             :disabled="!item.page"
             @click="selectReference(item)"
@@ -385,14 +392,6 @@ function trimmedChangeText(change: VersionChange): string {
           </div>
           <div class="row">
             <button
-              class="btn btn-small"
-              type="button"
-              :disabled="translating || !pageBlocks.length"
-              @click="translatePage"
-            >
-              {{ translating ? '翻译中…' : '翻译本页' }}
-            </button>
-            <button
               v-if="versions.length"
               class="btn btn-ghost btn-small"
               type="button"
@@ -403,13 +402,25 @@ function trimmedChangeText(change: VersionChange): string {
           </div>
         </div>
 
-        <div class="panel pdf-panel">
-          <PdfViewer
-            v-if="paper"
-            :url="api.paperFileUrl(paper.id)"
+        <div class="reader-main">
+          <div class="panel pdf-panel">
+            <PdfViewer
+              v-if="paper"
+              :url="api.paperFileUrl(paper.id)"
+              :page="page"
+              :highlight="highlight"
+              @loaded="onLoaded"
+            />
+          </div>
+          <BilingualPane
             :page="page"
-            :highlight="highlight"
-            @loaded="onLoaded"
+            :blocks="pageBlocks"
+            :translations="translations"
+            :translating="translating"
+            :translate-text="translateTextForHover"
+            @translate-page="translatePage"
+            @sync-page="syncPage"
+            @jump-reference="jumpReference"
           />
         </div>
 
@@ -480,52 +491,6 @@ function trimmedChangeText(change: VersionChange): string {
                   </p>
                 </div>
               </details>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="translations.length" class="panel translation-panel">
-          <div class="panel-head">
-            <span class="panel-title">双语对照</span>
-            <span class="mono faint">p.{{ page }}</span>
-          </div>
-          <div class="panel-body stack" @mouseup="captureSelection">
-            <div class="selection-box">
-              <div class="row">
-                <input
-                  v-model="selectionText"
-                  class="input"
-                  placeholder="选中一段原文，或粘贴后点翻译"
-                />
-                <button
-                  class="btn btn-small"
-                  type="button"
-                  :disabled="translatingSelection || !selectionText.trim()"
-                  @click="translateSelection"
-                >
-                  {{ translatingSelection ? '翻译中…' : '局部翻译' }}
-                </button>
-              </div>
-              <p v-if="selectionTranslation" class="translation-text">
-                {{ selectionTranslation }}
-              </p>
-              <p v-else-if="selectionStatus === 'not_configured'" class="faint">
-                当前未配置 LLM，无法翻译。
-              </p>
-            </div>
-            <p v-if="notConfigured" class="faint">
-              当前未配置 LLM。在 .env 中设置 LLM_API_KEY 后重新请求。
-            </p>
-            <div
-              v-for="item in translations"
-              :key="item.block_id"
-              class="translation-row"
-            >
-              <p class="translation-source">{{ item.source }}</p>
-              <p v-if="item.translation" class="translation-text">
-                {{ item.translation }}
-              </p>
-              <p v-else class="faint mono">{{ item.status }}</p>
             </div>
           </div>
         </div>
@@ -648,13 +613,6 @@ function trimmedChangeText(change: VersionChange): string {
   line-height: 1.45;
 }
 
-.selection-box {
-  padding: 10px 12px;
-  border: 1px solid var(--line, #e6e8e2);
-  border-radius: 6px;
-  background: var(--paper-2, #faf9f5);
-}
-
 .pdf-column {
   min-width: 0;
 }
@@ -667,35 +625,36 @@ function trimmedChangeText(change: VersionChange): string {
   margin-bottom: 8px;
 }
 
+.reader-main {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+}
+
 .pdf-panel {
+  flex: 1.15;
+  min-width: 0;
   overflow: hidden;
 }
 
-.translation-panel {
-  margin-top: 12px;
+.reader-main > .bilingual-pane {
+  flex: 1;
+  min-width: 0;
 }
 
-.translation-row {
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--rule-soft);
+.ref-flash {
+  animation: ref-flash 1.8s ease;
 }
 
-.translation-row:last-child {
-  border-bottom: none;
-}
+@keyframes ref-flash {
+  0% {
+    background: rgba(232, 199, 122, 0.55);
+  }
 
-.translation-source {
-  color: var(--ink-2);
-  font-family: var(--font-serif);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.translation-text {
-  margin-top: 5px;
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.7;
+  100% {
+    background: transparent;
+  }
 }
 
 .diff-panel {
@@ -817,6 +776,16 @@ function trimmedChangeText(change: VersionChange): string {
   .reader-assistant {
     position: static;
     grid-column: 1 / -1;
+    max-height: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .reader-main {
+    flex-direction: column;
+  }
+
+  .reader-main > .bilingual-pane {
     max-height: none;
   }
 }
