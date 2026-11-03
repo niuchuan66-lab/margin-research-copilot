@@ -53,6 +53,24 @@ const diffTarget = ref('')
 const diff = ref<VersionDiffResponse | null>(null)
 const diffLoading = ref(false)
 const diffError = ref('')
+const zoom = ref(1)
+const focusMode = ref(false)
+
+const ZOOM_MIN = 0.5
+const ZOOM_MAX = 4
+const ZOOM_STEP = 0.25
+
+function zoomIn(): void {
+  zoom.value = Math.min(ZOOM_MAX, Math.round((zoom.value + ZOOM_STEP) * 100) / 100)
+}
+
+function zoomOut(): void {
+  zoom.value = Math.max(ZOOM_MIN, Math.round((zoom.value - ZOOM_STEP) * 100) / 100)
+}
+
+function resetZoom(): void {
+  zoom.value = 1
+}
 
 const groupedChanges = computed(() => {
   const groups: Record<'added' | 'removed' | 'modified', VersionChange[]> = {
@@ -93,6 +111,8 @@ async function load(): Promise<void> {
     diffError.value = ''
     translations.value = []
     highlightRefId.value = ''
+    zoom.value = 1
+    focusMode.value = false
     const queryPage = Number(route.query.page)
     page.value = Number.isFinite(queryPage) && queryPage > 0 ? queryPage : 1
     await loadPageBlocks()
@@ -324,7 +344,7 @@ function trimmedChangeText(change: VersionChange): string {
     <p v-if="failure" class="error-line">{{ failure }}</p>
     <div v-if="loading" class="empty">正在打开论文…</div>
 
-    <div v-else class="reader-grid">
+    <div v-else class="reader-grid" :class="{ 'is-focus': focusMode }">
       <aside class="panel reader-outline">
         <div class="panel-head">
           <span class="panel-title">目录</span>
@@ -390,7 +410,48 @@ function trimmedChangeText(change: VersionChange): string {
               下一页
             </button>
           </div>
+          <div class="zoom-group" role="group" aria-label="PDF 缩放">
+            <button
+              class="btn btn-ghost btn-small zoom-btn"
+              type="button"
+              aria-label="缩小"
+              title="缩小"
+              :disabled="zoom <= ZOOM_MIN"
+              @click="zoomOut"
+            >
+              −
+            </button>
+            <span class="mono zoom-value" title="相对于「适应宽度」的缩放比例">
+              {{ Math.round(zoom * 100) }}%
+            </span>
+            <button
+              class="btn btn-ghost btn-small zoom-btn"
+              type="button"
+              aria-label="放大"
+              title="放大"
+              :disabled="zoom >= ZOOM_MAX"
+              @click="zoomIn"
+            >
+              +
+            </button>
+            <button
+              class="btn btn-ghost btn-small"
+              type="button"
+              :disabled="zoom === 1"
+              @click="resetZoom"
+            >
+              适应宽度
+            </button>
+          </div>
           <div class="row">
+            <button
+              class="btn btn-ghost btn-small"
+              :class="{ 'btn-active': focusMode }"
+              type="button"
+              @click="focusMode = !focusMode"
+            >
+              {{ focusMode ? '退出专注' : '专注原文' }}
+            </button>
             <button
               v-if="versions.length"
               class="btn btn-ghost btn-small"
@@ -408,6 +469,7 @@ function trimmedChangeText(change: VersionChange): string {
               v-if="paper"
               :url="api.paperFileUrl(paper.id)"
               :page="page"
+              :zoom="zoom"
               :highlight="highlight"
               @loaded="onLoaded"
             />
@@ -619,10 +681,50 @@ function trimmedChangeText(change: VersionChange): string {
 
 .pdf-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   margin-bottom: 8px;
+}
+
+.zoom-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zoom-btn {
+  min-width: 30px;
+  padding: 2px 6px;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.zoom-value {
+  min-width: 44px;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.btn-active {
+  border-color: var(--petrol);
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+.reader-grid.is-focus {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.reader-grid.is-focus .reader-outline,
+.reader-grid.is-focus .reader-assistant,
+.reader-grid.is-focus .reader-main > .bilingual-pane {
+  display: none;
+}
+
+.reader-grid.is-focus .pdf-panel {
+  flex: 1;
 }
 
 .reader-main {
