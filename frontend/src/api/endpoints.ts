@@ -1,3 +1,4 @@
+import { API_BASE } from './client'
 import type {
   Anchor,
   AnswerResponse,
@@ -59,7 +60,7 @@ export const api = {
     apiFetch<VersionDiffResponse>(`/papers/${newId}/diff/${oldId}`),
   deletePaper: (paperId: string) =>
     apiFetch<{ deleted: boolean }>(`/papers/${paperId}`, { method: 'DELETE' }),
-  paperFileUrl: (paperId: string) => `/api/v1/papers/${paperId}/file`,
+  paperFileUrl: (paperId: string) => `${API_BASE}/papers/${paperId}/file`,
 
   ask: (question: string, paperIds: string[], topK = 6) =>
     apiFetch<AnswerResponse>('/qa/ask', {

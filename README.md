@@ -5,6 +5,7 @@
 
 > 当前状态：**可运行版本**。六大模块全部实现；在初版基础上完成混合检索、段落级版本差异、工具调用 Agent、中英双栏同步阅读、解析 kind 标记与稳定性保活。后端 79 个测试、Ruff、前端类型检查与生产构建均通过。  
 > 线上演示：<https://niuchuanbo-margin-research-copilot.ms.show>  
+> Qoder Sites 公开镜像（前端托管于 Qoder Sites，后端同上）：<https://margin-research-copilot-7pzywfi72c7.qoder.zone>  
 > 项目书：[docs/项目书.md](docs/项目书.md)  
 > 技术文档 PDF：[docs/Margin科研助手-技术文档.pdf](docs/Margin科研助手-技术文档.pdf)  
 > 演示视频脚本：[docs/演示视频脚本.md](docs/演示视频脚本.md)  
@@ -18,6 +19,7 @@
 | 参赛者 | niuchuanbo |
 | 代码仓库 | <https://github.com/niuchuan66-lab/margin-research-copilot>（Public，Apache-2.0） |
 | 在线演示 | <https://niuchuanbo-margin-research-copilot.ms.show>（无需登录） |
+| Qoder Sites | <https://margin-research-copilot-7pzywfi72c7.qoder.zone>（公开，Hash 路由） |
 | 技术文档 | 17 页 PDF，源文件为 `docs/项目书.md` |
 | 演示视频 | 5–8 分钟、1080p、普通话，脚本见 `docs/演示视频脚本.md` |
 
@@ -172,7 +174,17 @@ curl -s -H "User-Agent: Mozilla/5.0" https://<user>-<studio>.ms.show/api/v1/heal
 
 注意：`.env`、`.env.modelscope` 均被 gitignore，密钥只放创空间 Secret；`ms.show` 网关会拒绝空 User-Agent 的请求，探活脚本已带 UA。
 
-### 4. 本地开发
+### 4. 部署到 Qoder Sites（前端公开托管）
+
+Qoder Sites 只托管静态文件，后端仍使用上一步的魔搭实例。前端已改为 Hash 路由，任意页面刷新都能直接打开。
+
+```bash
+VITE_API_BASE=https://<user>-<studio>.ms.show/api/v1 npm --prefix frontend run build
+```
+
+在 Qoder 中对本仓库执行站点发布，网页目录选 `frontend/dist`。后端需允许站点域名跨域（线上实例当前返回 `Access-Control-Allow-Origin: *`）。
+
+### 5. 本地开发
 
 后端需要 Python 3.11+：
 

@@ -2,7 +2,13 @@
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
+import { API_BASE } from '@/api/client'
+
 const route = useRoute()
+
+const remoteApi = computed(() => /^https?:\/\//.test(API_BASE))
+const workspaceLabel = computed(() => (remoteApi.value ? '云端工作区' : '本地工作区'))
+const apiLabel = computed(() => (remoteApi.value ? 'API 在线' : 'API 本地'))
 
 const nav = [
   { to: '/library', label: '书架' },
@@ -34,7 +40,7 @@ const currentTitle = computed(() => String(route.meta.title ?? 'Margin'))
       </nav>
 
       <div class="rail-foot">
-        <span class="rail-note">本地工作区</span>
+        <span class="rail-note">{{ workspaceLabel }}</span>
         <span class="rail-version">v0.1</span>
       </div>
     </aside>
@@ -44,7 +50,7 @@ const currentTitle = computed(() => String(route.meta.title ?? 'Margin'))
         <div class="topbar-title">{{ currentTitle }}</div>
         <div class="topbar-actions">
           <span class="status-dot" aria-hidden="true"></span>
-          <span class="muted">API 本地</span>
+          <span class="muted">{{ apiLabel }}</span>
           <RouterLink class="btn btn-ghost" to="/library">上传 PDF</RouterLink>
         </div>
       </header>
