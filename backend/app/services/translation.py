@@ -16,6 +16,35 @@ def _lines(blocks: list[Block]) -> str:
     )
 
 
+async def translate_text(
+    text: str, target_lang: str = "zh-CN"
+) -> tuple[str | None, str]:
+    """Translate a user-selected passage without touching block ids."""
+
+    if not settings.llm_configured:
+        return None, "not_configured"
+    answer = await chat(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "你是学术翻译。只输出译文，保留公式、代码、数字和引用标记；"
+                    "不添加解释，不编造原文没有的内容。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"目标语言：{target_lang}\n\n{text}",
+            },
+        ],
+        temperature=0.0,
+        max_tokens=1600,
+    )
+    if not answer or not answer.strip():
+        return None, "error"
+    return answer.strip(), "ok"
+
+
 async def translate_blocks(
     blocks: list[Block],
     target_lang: str = "zh-CN",

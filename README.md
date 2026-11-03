@@ -170,11 +170,12 @@ npm run dev
 
 | 指标 | 结果 |
 |---|---|
-| 页数 / 文本块 | 541 页 / 2192 块 |
+| 页数 / 文本块 | 541 页 / 2109 块 |
 | 解析引擎 | `pypdfium2+rapidocr`（537 页走文本层，4 页无文本走 OCR） |
-| 解析总耗时 | 约 10.9 秒 |
+| 解析总耗时 | 约 13.8 秒 |
 | 后端内存 | 约 165 MB |
-| 目录 | 627 个章节标题 |
+| 目录 | 442 个标题节点（1–3 级） |
+| 定位锚点 | 2109/2109 块带 bbox，2233 块带章节路径 |
 | 单页 QA | `deepseek-chat`，bias-variance 问题引用第 139–147 页 |
 
 实现方式：
@@ -262,15 +263,18 @@ pdf/                 官方测试 PDF 放置说明（*.pdf 不进仓库）
 | POST | `/api/v1/qa/ask` | 带引用的回答 |
 | POST/GET | `/api/v1/qa/stream` | SSE 流式回答 |
 | GET | `/api/v1/reader/{id}/anchors` | 文本块 + 页码 + bbox |
-| GET | `/api/v1/reader/{id}/outline` | 标题树 |
+| GET | `/api/v1/reader/{id}/outline` | 标题树（1–3 级） |
+| GET | `/api/v1/reader/{id}/references` | 参考文献条目 + 页码 + bbox |
 | POST | `/api/v1/reader/translate` | 双语块翻译 |
+| POST | `/api/v1/reader/translate-text` | 局部划词翻译 |
 | POST | `/api/v1/discovery/search` | arXiv / OpenAlex |
 | POST | `/api/v1/discovery/recommend` | 基于书架推荐 |
 | POST | `/api/v1/graph/build` | 引用图谱 |
-| POST | `/api/v1/graph/{id}/survey` | 综述草稿 |
+| POST | `/api/v1/graph/{id}/survey` | 综述草稿（LLM，带证据约束） |
+| POST | `/api/v1/graph/{id}/future-work` | 提取 Future Work 并合并相似方向 |
 | POST | `/api/v1/writing/outline` | 论文大纲 |
 | POST | `/api/v1/writing/figure` | Mermaid / Graphviz / TikZ |
-| POST | `/api/v1/writing/chart` | CSV → 单轴图表 + Caption |
+| POST | `/api/v1/writing/chart` | CSV → 折线/柱状/雷达图 + LLM 图注 |
 
 ## 测试数据
 
@@ -288,6 +292,24 @@ pdf/                 官方测试 PDF 放置说明（*.pdf 不进仓库）
 cd backend
 python -m app.workers.parse_cli ../pdf/1706.03762v1.pdf --blocks 5
 ```
+
+## 官方测试集回归（2026-11-03）
+
+本地以组委会 `pdf/` 目录的 39 篇论文跑通六大模块：
+
+| 用例 | 结果 |
+|---|---|
+| 批量导入 | 39/39 解析成功（38 篇文本层 + 1 篇纯扫描） |
+| v1 / v7 语义去重 | 5-gram Jaccard **0.7174**；上传旧版时建议保留新版 |
+| 扫描件 `1706.03762v1_img.pdf` | RapidOCR 15/15 页、955 块、161.7 秒，全部带 bbox |
+| 文本层 `1706.03762v1.pdf` | 101 块；101/101 带 bbox，100/100 有章节路径 |
+| 541 页 UDL | 2109 块、13.8 秒；537 页文本层 + 4 页 OCR；442 个标题节点 |
+| 单篇问答 | β1=0.9、β2=0.98、ε=1e-9、28.4 BLEU、8×P100/3.5 天，均带页码与 bbox |
+| 多篇问答 | GPT-1 / GPT-3 / BERT / Transformer 四篇联合检索；按论文分别召回后合并，避免单一论文占满上下文 |
+| 引用图谱 | 39 篇 → 361 节点 / 803 条边；PageRank 3.0 秒 |
+| 综述 / 未来方向 | LLM 综述 6845 字符；Future Work 抽取 10 条并按相似度合并 |
+| 写作 | LLM 大纲 7 节并绑定库内引用；折线/柱状/雷达图 + LLM 图注 |
+| 检索推荐 | arXiv / OpenAlex 各 5 条；推荐结果优先展示带 GitHub 链接的论文 |
 
 ## 测试与检查
 

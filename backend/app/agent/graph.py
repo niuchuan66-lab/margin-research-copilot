@@ -8,12 +8,12 @@ without changing the API contract.
 from __future__ import annotations
 
 import logging
+import re
 
 from app.agent.state import AgentState
 from app.core.config import settings
 from app.models.schemas import AnswerResponse
-from app.services.indexing import get_index
-from app.services.qa import answer_from_hits, expand_hits
+from app.services.qa import answer_from_hits, retrieve_hits
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +27,10 @@ async def _plan(state: AgentState) -> AgentState:
 
 
 async def _retrieve(state: AgentState) -> AgentState:
-    hits = expand_hits(
-        get_index().search(
-            state["question"],
-            paper_ids=state.get("paper_ids") or None,
-            top_k=state.get("top_k", 6),
-        )
+    hits = retrieve_hits(
+        state["question"],
+        paper_ids=state.get("paper_ids") or None,
+        top_k=state.get("top_k", 6),
     )
     return {
         **state,
@@ -50,6 +48,7 @@ async def _answer(state: AgentState) -> AgentState:
         "answer": response.answer,
         "citations": [citation.model_dump() for citation in response.citations],
         "model": response.model,
+        "grounded": response.grounded,
         "trace": [*state.get("trace", []), *response.trace],
     }
 
@@ -62,8 +61,21 @@ async def _verify(state: AgentState) -> AgentState:
         quote = str(citation.get("quote", "")).strip()
         if not quote or quote[:80] in source_text:
             kept.append(citation)
-    trace = [*state.get("trace", []), f"verify: {len(kept)} 条引用通过原文校验"]
-    return {**state, "citations": kept, "trace": trace}
+    markers = [
+        int(value)
+        for value in re.findall(r"\[(\d{1,2})\]", state.get("answer", ""))
+    ]
+    grounded = bool(kept) and any(1 <= value <= len(kept) for value in markers)
+    trace = [
+        *state.get("trace", []),
+        f"verify: {len(kept)} 条引用通过原文校验，grounded={grounded}",
+    ]
+    return {
+        **state,
+        "citations": kept,
+        "grounded": grounded,
+        "trace": trace,
+    }
 
 
 def _build_langgraph():
@@ -102,7 +114,7 @@ async def run_agent(
                 citations=result.get("citations", []),
                 trace=result.get("trace", []),
                 model=result.get("model", settings.llm_model),
-                grounded=bool(result.get("citations")),
+                grounded=bool(result.get("grounded")),
             )
         except Exception as exc:
             logger.info("LangGraph unavailable (%s); using sequential fallback", exc)
@@ -116,5 +128,5 @@ async def run_agent(
         citations=state.get("citations", []),
         trace=state.get("trace", []),
         model=state.get("model", "extractive-fallback"),
-        grounded=bool(state.get("citations")),
+        grounded=bool(state.get("grounded")),
     )

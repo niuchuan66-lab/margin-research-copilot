@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def expand_hits(
-    hits: list[tuple[Chunk, float]], window: int = 1
+    hits: list[tuple[Chunk, float]], window: int = 1, limit: int = 18
 ) -> list[tuple[Chunk, float]]:
     """Add adjacent blocks so line-level OCR/PDF chunks keep their context."""
 
@@ -64,7 +64,32 @@ def expand_hits(
                     score if offset == 0 else score * 0.4,
                 )
             )
-    return expanded[:18]
+    return expanded[:limit]
+
+
+def retrieve_hits(
+    question: str,
+    paper_ids: list[str] | None = None,
+    top_k: int = 6,
+) -> list[tuple[Chunk, float]]:
+    """Retrieve per paper so a multi-paper question keeps every source."""
+
+    index = get_index()
+    if not paper_ids or len(paper_ids) <= 1:
+        return expand_hits(
+            index.search(question, paper_ids=paper_ids, top_k=top_k)
+        )
+    per_paper = max(3, top_k)
+    buckets = [
+        index.search(question, paper_ids=[paper_id], top_k=per_paper)
+        for paper_id in paper_ids
+    ]
+    interleaved: list[tuple[Chunk, float]] = []
+    for rank in range(per_paper):
+        for bucket in buckets:
+            if rank < len(bucket):
+                interleaved.append(bucket[rank])
+    return expand_hits(interleaved, limit=max(18, 6 * len(paper_ids)))
 
 
 def _citations_from_hits(
@@ -103,6 +128,16 @@ def _chunk_text(text: str, size: int = 6) -> list[str]:
     return re.findall(rf".{{1,{size}}}", text, flags=re.S)
 
 
+def _grounding_check(answer: str, citations: list[Citation]) -> tuple[bool, int]:
+    """A citation marker is only valid if it points at a real retrieved chunk."""
+
+    if not citations:
+        return False, 0
+    markers = [int(value) for value in re.findall(r"\[(\d{1,2})\]", answer)]
+    valid = [value for value in markers if 1 <= value <= len(citations)]
+    return bool(valid), len(valid)
+
+
 async def answer_from_hits(
     question: str, hits: list[tuple[Chunk, float]]
 ) -> AnswerResponse:
@@ -118,12 +153,16 @@ async def answer_from_hits(
     if not answer:
         answer = _extractive_answer(question, hits)
         model = "extractive-fallback"
+    grounded, marker_count = _grounding_check(answer, citations)
     return AnswerResponse(
         answer=answer,
         citations=citations,
-        trace=[f"answer: {model}"],
+        trace=[
+            f"answer: {model}",
+            f"verify: {marker_count} 个引用标记可定位到 {len(citations)} 条原文锚点",
+        ],
         model=model,
-        grounded=bool(citations),
+        grounded=grounded,
     )
 
 
@@ -132,7 +171,7 @@ async def answer_question(
     paper_ids: list[str] | None = None,
     top_k: int = 6,
 ) -> AnswerResponse:
-    hits = expand_hits(get_index().search(question, paper_ids=paper_ids, top_k=top_k))
+    hits = retrieve_hits(question, paper_ids=paper_ids, top_k=top_k)
     response = await answer_from_hits(question, hits)
     trace = [
         f"plan: 在 {len(paper_ids) if paper_ids else '全部'} 篇论文中检索并作答",

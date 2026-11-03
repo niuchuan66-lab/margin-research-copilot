@@ -171,7 +171,14 @@ async def _run_parse(job_id: str, paper_id: str, path: Path) -> None:
 
     try:
         parsed = await asyncio.to_thread(parse_pdf, path, progress)
-        derived_title = _derive_title(parsed.blocks) or paper.title
+        meta_title = " ".join(
+            str(parsed.metadata.get("title") or "").split()
+        )
+        derived_title = (
+            meta_title
+            if meta_title and _looks_like_title(meta_title)
+            else _derive_title(parsed.blocks)
+        ) or paper.title
         updated = paper_store.update(
             paper_id,
             status=PaperStatus.ready,
@@ -269,35 +276,76 @@ def _delete_paper(paper_id: str) -> bool:
 
 
 def _derive_title(blocks: list[Block]) -> str | None:
-    for block in blocks[:8]:
-        for line in block.text.splitlines():
-            candidate = " ".join(line.split())
-            if _looks_like_title(candidate):
-                return candidate
+    lines = [
+        " ".join(line.split())
+        for block in blocks[:6]
+        for line in block.text.splitlines()
+        if line.strip()
+    ]
+    for index, candidate in enumerate(lines):
+        if not _looks_like_title(candidate):
+            continue
+        if index + 1 < len(lines):
+            following = lines[index + 1]
+            if candidate.endswith(":") and _looks_like_title_fragment(following):
+                return f"{candidate} {following}"[:220]
+            if (
+                candidate.isupper()
+                and following.isupper()
+                and _looks_like_title_fragment(following)
+            ):
+                return f"{candidate} {following}"[:220]
+            if (
+                following[:1].islower()
+                and len(following.split()) <= 6
+                and not candidate.endswith((".", "?", "!"))
+            ):
+                return f"{candidate} {following}"[:220]
+        return candidate
     return None
 
 
+def _looks_like_title_fragment(line: str) -> bool:
+    return 3 <= len(line) <= 120 and not line.endswith((".", ",", ";"))
+
+
 def _looks_like_title(line: str) -> bool:
-    if not 8 <= len(line) <= 200:
+    line = line.strip()
+    if not 8 <= len(line) <= 220:
         return False
     lowered = line.lower()
     if lowered.startswith(
-        ("provided", "copyright", "license", "permission", "arxiv", "this work", "abstract")
+        (
+            "provided",
+            "copyright",
+            "license",
+            "permission",
+            "arxiv",
+            "this work",
+            "abstract",
+            "journal of",
+            "published in",
+            "published as",
+            "proceedings",
+            "association for computational linguistics",
+            "submitted",
+            "reviewed on openreview",
+            "c 20",
+        )
     ):
         return False
     if "@" in line or "http" in lowered:
         return False
-    if " " not in line and len(line) >= 10:
-        uppercase = sum(1 for char in line if char.isupper())
-        if uppercase >= 3:
-            return True
+    if line.count(",") >= 2 or "∗" in line or "†" in line:
+        return False
     words = line.split()
-    if not 2 <= len(words) <= 20:
+    if not 2 <= len(words) <= 25:
         return False
     if line.endswith((".", "。", ",", "*", "†", "‡")):
         return False
-    capitalized = sum(1 for word in words if word[:1].isupper())
-    return capitalized >= max(2, len(words) // 2)
+    if not any(char.isalpha() for char in line):
+        return False
+    return any(char.isupper() for char in line)
 
 
 def _dedup(paper: Paper) -> DedupResult | None:

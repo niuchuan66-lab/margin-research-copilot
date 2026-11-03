@@ -33,6 +33,7 @@ const figure = ref<FigureResponse | null>(null)
 const figureLoading = ref(false)
 const csvText = ref(SAMPLE_CSV)
 const chartTitle = ref('Model quality')
+const chartType = ref<'line' | 'bar' | 'radar'>('line')
 const chart = ref<ChartResponse | null>(null)
 const chartLoading = ref(false)
 const showTable = ref(false)
@@ -85,7 +86,11 @@ async function generateChart(): Promise<void> {
   chartLoading.value = true
   failure.value = ''
   try {
-    chart.value = await api.chart(csvText.value, chartTitle.value || 'Figure')
+    chart.value = await api.chart(
+      csvText.value,
+      chartTitle.value || 'Figure',
+      chartType.value,
+    )
     showTable.value = false
   } catch (error) {
     failure.value = errorMessage(error)
@@ -203,6 +208,11 @@ function openCitation(citation: Citation): void {
           </div>
           <div class="panel-body stack">
             <input v-model="chartTitle" class="input" placeholder="图标题" />
+            <select v-model="chartType" class="select" aria-label="图表类型">
+              <option value="line">折线图</option>
+              <option value="bar">柱状图</option>
+              <option value="radar">雷达图</option>
+            </select>
             <textarea v-model="csvText" class="textarea code-textarea" rows="7"></textarea>
             <div class="row">
               <button class="btn" type="button" :disabled="chartLoading" @click="generateChart">

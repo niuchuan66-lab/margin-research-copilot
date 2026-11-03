@@ -184,6 +184,33 @@ export interface OutlineItem {
   level: number
 }
 
+export interface ReferenceItem {
+  index: number | null
+  page: number | null
+  block_id: string
+  bbox: number[] | null
+  text: string
+}
+
+export interface FutureWorkItem {
+  idea: string
+  paper_id: string
+  paper_title: string | null
+  year: number | null
+  page: number
+  evidence: string
+}
+
+export interface FutureWorkResponse {
+  graph_id: string
+  items: FutureWorkItem[]
+}
+
+export interface TextTranslationResponse {
+  translation: string | null
+  status: string
+}
+
 export interface HealthResponse {
   status: 'ok' | 'degraded'
   app: string

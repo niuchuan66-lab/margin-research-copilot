@@ -6,12 +6,14 @@ import GraphCanvas from '@/components/GraphCanvas.vue'
 import { api } from '@/api/endpoints'
 import { errorMessage } from '@/lib/format'
 import { usePapersStore } from '@/stores/papers'
-import type { GraphResponse } from '@/types'
+import type { FutureWorkItem, GraphResponse } from '@/types'
 
 const papers = usePapersStore()
 const graph = ref<GraphResponse | null>(null)
 const survey = ref('')
+const futureWork = ref<FutureWorkItem[]>([])
 const loading = ref(false)
+const futureLoading = ref(false)
 const failure = ref('')
 
 const cornerstones = computed(
@@ -34,6 +36,7 @@ async function build(): Promise<void> {
   loading.value = true
   failure.value = ''
   survey.value = ''
+  futureWork.value = []
   try {
     graph.value = await api.buildGraph(ids)
   } catch (error) {
@@ -56,6 +59,22 @@ async function generateSurvey(): Promise<void> {
     failure.value = errorMessage(error)
   } finally {
     loading.value = false
+  }
+}
+
+async function generateFutureWork(): Promise<void> {
+  if (!graph.value) {
+    return
+  }
+  futureLoading.value = true
+  failure.value = ''
+  try {
+    const result = await api.futureWork(graph.value.graph_id)
+    futureWork.value = result.items
+  } catch (error) {
+    failure.value = errorMessage(error)
+  } finally {
+    futureLoading.value = false
   }
 }
 </script>
@@ -93,9 +112,19 @@ async function generateSurvey(): Promise<void> {
             {{ graph.edges.length }}
           </p>
         </div>
-        <button class="btn btn-ghost btn-small" type="button" :disabled="loading" @click="generateSurvey">
-          生成综述草稿
-        </button>
+        <div class="row">
+          <button class="btn btn-ghost btn-small" type="button" :disabled="loading" @click="generateSurvey">
+            生成综述草稿
+          </button>
+          <button
+            class="btn btn-ghost btn-small"
+            type="button"
+            :disabled="futureLoading"
+            @click="generateFutureWork"
+          >
+            {{ futureLoading ? '提取中…' : '提取未来方向' }}
+          </button>
+        </div>
       </div>
 
       <div class="graph-layout">
@@ -145,6 +174,21 @@ async function generateSurvey(): Promise<void> {
           <span class="mono faint">需人工核对</span>
         </div>
         <pre class="survey-text">{{ survey }}</pre>
+      </div>
+      <div v-if="futureWork.length" class="panel survey-panel">
+        <div class="panel-head">
+          <span class="panel-title">未来方向</span>
+          <span class="mono faint">已按相似度合并 · 需人工核对</span>
+        </div>
+        <div class="future-list">
+          <article v-for="item in futureWork" :key="`${item.paper_id}-${item.page}`" class="future-item">
+            <div class="row">
+              <strong>{{ item.paper_title ?? item.paper_id }}</strong>
+              <span class="mono faint">p.{{ item.page }} · {{ item.year ?? '年份未明确' }}</span>
+            </div>
+            <p class="muted">{{ item.evidence }}</p>
+          </article>
+        </div>
       </div>
     </template>
   </section>
@@ -204,6 +248,25 @@ async function generateSurvey(): Promise<void> {
 
 .survey-panel {
   margin-top: 14px;
+}
+
+.future-list {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.future-item {
+  padding: 10px 12px;
+  border: 1px solid var(--line, #e6e8e2);
+  border-radius: 6px;
+  background: var(--paper-2, #faf9f5);
+}
+
+.future-item p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .survey-text {

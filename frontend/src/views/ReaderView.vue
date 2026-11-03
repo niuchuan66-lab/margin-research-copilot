@@ -7,11 +7,19 @@ import CitationChip from '@/components/CitationChip.vue'
 import PdfViewer from '@/components/PdfViewer.vue'
 import { api } from '@/api/endpoints'
 import { errorMessage } from '@/lib/format'
-import type { Block, Citation, OutlineItem, Paper, TranslatedBlock } from '@/types'
+import type {
+  Block,
+  Citation,
+  OutlineItem,
+  Paper,
+  ReferenceItem,
+  TranslatedBlock,
+} from '@/types'
 
 const route = useRoute()
 const paper = ref<Paper | null>(null)
 const outline = ref<OutlineItem[]>([])
+const references = ref<ReferenceItem[]>([])
 const page = ref(1)
 const numPages = ref(0)
 const highlight = ref<{
@@ -27,6 +35,10 @@ const loading = ref(false)
 const failure = ref('')
 const translations = ref<TranslatedBlock[]>([])
 const translating = ref(false)
+const selectionText = ref('')
+const selectionTranslation = ref('')
+const selectionStatus = ref('')
+const translatingSelection = ref(false)
 
 const paperId = computed(() => String(route.params.id ?? ''))
 const pageBlocks = ref<Block[]>([])
@@ -45,12 +57,14 @@ async function load(): Promise<void> {
   loading.value = true
   failure.value = ''
   try {
-    const [detail, tree] = await Promise.all([
+    const [detail, tree, refs] = await Promise.all([
       api.getPaper(paperId.value, false),
       api.readerOutline(paperId.value),
+      api.readerReferences(paperId.value).catch(() => [] as ReferenceItem[]),
     ])
     paper.value = detail
     outline.value = tree
+    references.value = refs
     const queryPage = Number(route.query.page)
     page.value = Number.isFinite(queryPage) && queryPage > 0 ? queryPage : 1
     await loadPageBlocks()
@@ -110,6 +124,16 @@ function selectCitation(citation: Citation): void {
     : null
 }
 
+function selectReference(item: ReferenceItem): void {
+  if (!item.page) {
+    return
+  }
+  page.value = item.page
+  highlight.value = item.bbox
+    ? { bbox: item.bbox, space: 'bottom-left' }
+    : null
+}
+
 async function ask(): Promise<void> {
   const text = question.value.trim()
   if (!text || !paperId.value || asking.value) {
@@ -126,6 +150,31 @@ async function ask(): Promise<void> {
     failure.value = errorMessage(error)
   } finally {
     asking.value = false
+  }
+}
+
+function captureSelection(): void {
+  const selected = window.getSelection()?.toString().trim() ?? ''
+  if (selected.length >= 2 && selected.length <= 1200) {
+    selectionText.value = selected
+  }
+}
+
+async function translateSelection(): Promise<void> {
+  const text = selectionText.value.trim()
+  if (!text || translatingSelection.value) {
+    return
+  }
+  translatingSelection.value = true
+  selectionStatus.value = ''
+  try {
+    const result = await api.translateText(text)
+    selectionTranslation.value = result.translation ?? ''
+    selectionStatus.value = result.status
+  } catch (error) {
+    selectionStatus.value = errorMessage(error)
+  } finally {
+    translatingSelection.value = false
   }
 }
 
@@ -197,6 +246,27 @@ async function translatePage(): Promise<void> {
           </button>
           <p v-if="!outline.length" class="faint outline-empty">解析后显示标题树</p>
         </div>
+        <div class="panel-head ref-head">
+          <span class="panel-title">参考文献</span>
+          <span class="mono faint">{{ references.length }}</span>
+        </div>
+        <div class="outline-list ref-list">
+          <button
+            v-for="item in references"
+            :key="item.block_id"
+            class="outline-item ref-item"
+            type="button"
+            :disabled="!item.page"
+            @click="selectReference(item)"
+          >
+            <span class="mono faint ref-index">{{ item.index ?? '·' }}</span>
+            <span class="ref-text">{{ item.text }}</span>
+            <span v-if="item.page" class="mono faint">p.{{ item.page }}</span>
+          </button>
+          <p v-if="!references.length" class="faint outline-empty">
+            解析后显示参考文献
+          </p>
+        </div>
       </aside>
 
       <div class="pdf-column">
@@ -245,7 +315,30 @@ async function translatePage(): Promise<void> {
             <span class="panel-title">双语对照</span>
             <span class="mono faint">p.{{ page }}</span>
           </div>
-          <div class="panel-body stack">
+          <div class="panel-body stack" @mouseup="captureSelection">
+            <div class="selection-box">
+              <div class="row">
+                <input
+                  v-model="selectionText"
+                  class="input"
+                  placeholder="选中一段原文，或粘贴后点翻译"
+                />
+                <button
+                  class="btn btn-small"
+                  type="button"
+                  :disabled="translatingSelection || !selectionText.trim()"
+                  @click="translateSelection"
+                >
+                  {{ translatingSelection ? '翻译中…' : '局部翻译' }}
+                </button>
+              </div>
+              <p v-if="selectionTranslation" class="translation-text">
+                {{ selectionTranslation }}
+              </p>
+              <p v-else-if="selectionStatus === 'not_configured'" class="faint">
+                当前未配置 LLM，无法翻译。
+              </p>
+            </div>
             <p v-if="notConfigured" class="faint">
               当前未配置 LLM。在 .env 中设置 LLM_API_KEY 后重新请求。
             </p>
@@ -352,6 +445,40 @@ async function translatePage(): Promise<void> {
 .outline-empty {
   padding: 12px;
   font-size: 12px;
+}
+
+.ref-head {
+  margin-top: 10px;
+  border-top: 1px solid var(--line, #e6e8e2);
+}
+
+.ref-list {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.ref-item {
+  align-items: flex-start;
+}
+
+.ref-index {
+  min-width: 22px;
+}
+
+.ref-text {
+  flex: 1;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.45;
+}
+
+.selection-box {
+  padding: 10px 12px;
+  border: 1px solid var(--line, #e6e8e2);
+  border-radius: 6px;
+  background: var(--paper-2, #faf9f5);
 }
 
 .pdf-column {

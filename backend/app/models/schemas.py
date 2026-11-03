@@ -163,6 +163,16 @@ class TranslationRequest(BaseModel):
     target_lang: str = "zh-CN"
 
 
+class TextTranslationRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    target_lang: str = "zh-CN"
+
+
+class TextTranslationResponse(BaseModel):
+    translation: str | None = None
+    status: str = "ok"
+
+
 class TranslatedBlock(BaseModel):
     block_id: str
     page: int
@@ -203,6 +213,20 @@ class GraphBuildRequest(BaseModel):
 class SurveyResponse(BaseModel):
     graph_id: str
     markdown: str
+
+
+class FutureWorkItem(BaseModel):
+    idea: str
+    paper_id: str
+    paper_title: str | None = None
+    year: int | None = None
+    page: int
+    evidence: str
+
+
+class FutureWorkResponse(BaseModel):
+    graph_id: str
+    items: list[FutureWorkItem] = Field(default_factory=list)
 
 
 class GraphNode(BaseModel):
@@ -259,6 +283,7 @@ class FigureResponse(BaseModel):
 class ChartRequest(BaseModel):
     csv: str = Field(min_length=3)
     title: str = "Figure"
+    chart_type: Literal["line", "bar", "radar"] = "line"
 
 
 class ChartResponse(BaseModel):

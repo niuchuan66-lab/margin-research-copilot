@@ -28,12 +28,14 @@ def build_citation_graph(papers: list[Paper]) -> GraphResponse:
         if paper.title:
             title_to_id[normalize(paper.title)] = paper.id
 
+    stub_edges: list[GraphEdge] = []
+    stub_meta: dict[str, GraphNode] = {}
     for paper in papers:
         for reference in paper.references:
             target = _match_reference(reference, papers, title_to_id)
             if target is None and reference.title:
                 target = f"ref:{hashlib.sha1(reference.title.encode()).hexdigest()[:10]}"
-                nodes.setdefault(
+                stub_meta.setdefault(
                     target,
                     GraphNode(
                         id=target,
@@ -41,8 +43,19 @@ def build_citation_graph(papers: list[Paper]) -> GraphResponse:
                         year=reference.year,
                     ),
                 )
-            if target and target != paper.id:
+                stub_edges.append(GraphEdge(source=paper.id, target=target))
+            if target and target != paper.id and target in nodes:
                 edges.append(GraphEdge(source=paper.id, target=target))
+
+    # Keep only external works cited by two or more library papers; one-off
+    # bibliography entries would otherwise dominate the canvas.
+    stub_counts: dict[str, int] = {}
+    for edge in stub_edges:
+        stub_counts[edge.target] = stub_counts.get(edge.target, 0) + 1
+    for edge in stub_edges:
+        if stub_counts[edge.target] >= 2:
+            nodes.setdefault(edge.target, stub_meta[edge.target])
+            edges.append(edge)
 
     edges = _dedupe_edges(edges)
     in_degree = {node_id: 0 for node_id in nodes}
@@ -99,6 +112,11 @@ def _match_reference(reference, papers: list[Paper], title_to_id: dict[str, str]
     for title, paper_id in title_to_id.items():
         if len(key) > 20 and (key in title or title in key):
             return paper_id
+    raw = normalize(getattr(reference, "raw", "") or "")
+    if raw:
+        for title, paper_id in title_to_id.items():
+            if len(title) > 20 and title in raw:
+                return paper_id
     return None
 
 

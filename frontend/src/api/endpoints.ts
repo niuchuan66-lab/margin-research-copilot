@@ -6,6 +6,7 @@ import type {
   DedupActionResponse,
   DiscoveryHit,
   FigureResponse,
+  FutureWorkResponse,
   GraphResponse,
   HealthResponse,
   OutlineItem,
@@ -13,6 +14,8 @@ import type {
   Paper,
   PaperSummary,
   ParseJob,
+  ReferenceItem,
+  TextTranslationResponse,
   TranslatedBlock,
   UploadResponse,
 } from '@/types'
@@ -61,6 +64,8 @@ export const api = {
   anchors: (paperId: string) => apiFetch<Anchor[]>(`/reader/${paperId}/anchors`),
   readerOutline: (paperId: string) =>
     apiFetch<OutlineItem[]>(`/reader/${paperId}/outline`),
+  readerReferences: (paperId: string) =>
+    apiFetch<ReferenceItem[]>(`/reader/${paperId}/references`),
   translate: (paperId: string, blockIds: string[], targetLang = 'zh-CN') =>
     apiFetch<TranslatedBlock[]>('/reader/translate', {
       method: 'POST',
@@ -69,6 +74,11 @@ export const api = {
         block_ids: blockIds,
         target_lang: targetLang,
       }),
+    }),
+  translateText: (text: string, targetLang = 'zh-CN') =>
+    apiFetch<TextTranslationResponse>('/reader/translate-text', {
+      method: 'POST',
+      body: JSON.stringify({ text, target_lang: targetLang }),
     }),
 
   discovery: (query: string, source: 'arxiv' | 'openalex' = 'arxiv', limit = 10) =>
@@ -91,6 +101,10 @@ export const api = {
     apiFetch<{ graph_id: string; markdown: string }>(`/graph/${graphId}/survey`, {
       method: 'POST',
     }),
+  futureWork: (graphId: string) =>
+    apiFetch<FutureWorkResponse>(`/graph/${graphId}/future-work`, {
+      method: 'POST',
+    }),
 
   writingOutline: (idea: string, paperIds: string[] = [], language: 'zh' | 'en' = 'zh') =>
     apiFetch<OutlineResponse>('/writing/outline', {
@@ -102,9 +116,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ kind, spec }),
     }),
-  chart: (csv: string, title: string) =>
+  chart: (csv: string, title: string, chartType: 'line' | 'bar' | 'radar' = 'line') =>
     apiFetch<ChartResponse>('/writing/chart', {
       method: 'POST',
-      body: JSON.stringify({ csv, title }),
+      body: JSON.stringify({ csv, title, chart_type: chartType }),
     }),
 }

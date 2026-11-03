@@ -81,6 +81,8 @@ async def search_openalex(query: str, limit: int = 10) -> list[DiscoveryHit]:
     payload = response.json()
     hits: list[DiscoveryHit] = []
     for work in payload.get("results", []):
+        abstract = _reconstruct_abstract(work.get("abstract_inverted_index"))
+        github_match = GITHUB_RE.search(abstract or "")
         hits.append(
             DiscoveryHit(
                 source="openalex",
@@ -91,28 +93,54 @@ async def search_openalex(query: str, limit: int = 10) -> list[DiscoveryHit]:
                     if authorship.get("author")
                 ],
                 year=work.get("publication_year"),
-                abstract=_reconstruct_abstract(work.get("abstract_inverted_index")),
+                abstract=abstract,
                 url=work.get("id"),
                 doi=(work.get("doi") or "").replace("https://doi.org/", "") or None,
+                github_url=github_match.group() if github_match else None,
                 reason="OpenAlex 引用/主题相关",
             )
         )
     return hits
 
 
-async def recommend(paper_ids: list[str], limit: int = 8) -> list[DiscoveryHit]:
-    """A lightweight recommendation: use library titles as the query."""
+_STOPWORDS = {
+    "with", "from", "that", "this", "these", "those", "using", "based",
+    "towards", "into", "over", "under", "through", "their", "there", "which",
+    "learning", "model", "models", "paper", "study", "approach", "method",
+}
 
-    titles = [
-        paper.title
+
+def _keywords(titles: list[str], limit: int = 6) -> list[str]:
+    counts: dict[str, int] = {}
+    for title in titles:
+        for word in re.findall(r"[A-Za-z][A-Za-z\-]{3,}", title.lower()):
+            if word in _STOPWORDS:
+                continue
+            counts[word] = counts.get(word, 0) + 1
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [word for word, _ in ranked[:limit]]
+
+
+async def recommend(paper_ids: list[str], limit: int = 8) -> list[DiscoveryHit]:
+    """Recommend arXiv papers by library keywords, GitHub repos first."""
+
+    papers = [
+        paper
         for paper_id in paper_ids
         if (paper := paper_store.get(paper_id)) is not None
     ]
-    query = " ".join(title for title in titles if title) or "large language model research"
-    hits = await search_arxiv(query, limit)
-    for hit in hits:
-        hit.reason = "与库中论文主题相近" + ("；含 GitHub 复现代码" if hit.github_url else "")
-    return hits
+    titles = [paper.title or paper.filename for paper in papers]
+    keywords = _keywords(titles)
+    query = " ".join(keywords) if keywords else "large language model"
+    hits = await search_arxiv(query, limit + 5)
+    library_titles = {title.strip().lower() for title in titles}
+    hits = [hit for hit in hits if hit.title.strip().lower() not in library_titles]
+    hits.sort(key=lambda hit: hit.github_url is None)
+    for hit in hits[:limit]:
+        hit.reason = "与库中论文主题相近" + (
+            "；含 GitHub 复现代码" if hit.github_url else ""
+        )
+    return hits[:limit]
 
 
 def _text(element: ET.Element | None) -> str:

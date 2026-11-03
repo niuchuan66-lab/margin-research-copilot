@@ -108,7 +108,199 @@ def _is_heading(line: str) -> bool:
         "Acknowledgements",
     }:
         return True
+    if re.match(r"^\d+(?:\.\d+)*\.?\s+.+\s+\d{1,3}$", line):
+        # Running header such as "1.1 Supervised learning 3" (page number).
+        return False
     return bool(re.match(r"^\d+(?:\.\d+)*\.?\s*[A-Z].{2,70}$", line)) and not line.endswith(".")
+
+
+_REF_START = re.compile(r"^(?:\[\d+\]|\d+\.\s+[A-Z])")
+_REFERENCE_END = {"appendix", "acknowledgements", "acknowledgments"}
+_TOC_LEADER = re.compile(r"(?:\.\s*){4,}")
+
+
+class _DocState:
+    """Section state carried across pages."""
+
+    def __init__(self) -> None:
+        self.stack: list[tuple[int, str]] = []
+        self.in_references = False
+
+
+def _heading_depth(title: str) -> int:
+    match = re.match(r"^(\d+(?:\.\d+)*)\.?\s", title.strip())
+    if match:
+        return match.group(1).count(".") + 1
+    return 1
+
+
+def _update_sections(
+    stack: list[tuple[int, str]], title: str
+) -> list[str]:
+    depth = _heading_depth(title)
+    while stack and stack[-1][0] >= depth:
+        stack.pop()
+    stack.append((depth, title))
+    return [item for _, item in stack]
+
+
+def _line_spans(text: str) -> list[tuple[str, int, int]]:
+    """Return each line with its character offsets in the page text."""
+
+    spans: list[tuple[str, int, int]] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        raw = line.rstrip("\r\n")
+        spans.append((raw, offset, offset + len(raw)))
+        offset += len(line)
+    return spans
+
+
+def _union_charboxes(
+    textpage: Any, start: int, end: int
+) -> list[float] | None:
+    """Union character boxes into one PDF-space bbox (bottom-left origin)."""
+
+    limit = textpage.count_chars()
+    left = bottom = float("inf")
+    right = top = float("-inf")
+    for index in range(max(0, start), min(end, limit)):
+        try:
+            x0, y0, x1, y1 = textpage.get_charbox(index)
+        except Exception:
+            continue
+        if x1 <= x0 or y1 <= y0:
+            continue
+        left = min(left, x0)
+        bottom = min(bottom, y0)
+        right = max(right, x1)
+        top = max(top, y1)
+    if left == float("inf"):
+        return None
+    return [round(left, 2), round(bottom, 2), round(right, 2), round(top, 2)]
+
+
+def _blocks_from_textpage(
+    textpage: Any, page_number: int, state: _DocState
+) -> list[Block]:
+    """Emit blocks in reading order with bbox and heading hierarchy."""
+
+    raw = textpage.get_text_range() or ""
+    if not raw.strip():
+        return []
+    blocks: list[Block] = []
+    stack = state.stack
+    paragraphs: list[tuple[str, int, int]] = []
+    references: list[tuple[str, int, int]] = []
+    in_references = state.in_references
+    spans = _line_spans(raw)
+    is_toc = sum(1 for line, _, _ in spans if _TOC_LEADER.search(line)) >= 3
+
+    def current_path() -> list[str]:
+        return [item for _, item in stack]
+
+    def flush_paragraph() -> None:
+        nonlocal paragraphs
+        if not paragraphs:
+            return
+        text = "\n".join(item[0] for item in paragraphs)
+        bbox = _union_charboxes(
+            textpage, paragraphs[0][1], paragraphs[-1][2]
+        )
+        path = current_path()
+        for chunk in _split_text(text):
+            blocks.append(
+                _block(
+                    page_number,
+                    chunk,
+                    bbox=bbox,
+                    bbox_space="bottom-left",
+                    section_path=path,
+                )
+            )
+        paragraphs = []
+
+    def flush_reference() -> None:
+        nonlocal references
+        if not references:
+            return
+        text = " ".join(item[0] for item in references)
+        bbox = _union_charboxes(
+            textpage, references[0][1], references[-1][2]
+        )
+        path = current_path()
+        blocks.append(
+            _block(
+                page_number,
+                text,
+                kind=BlockKind.reference,
+                bbox=bbox,
+                bbox_space="bottom-left",
+                section_path=path,
+            )
+        )
+        references = []
+
+    def add_heading(line: str, start: int, end: int) -> None:
+        path = _update_sections(stack, line)
+        blocks.append(
+            _block(
+                page_number,
+                line,
+                kind=BlockKind.heading,
+                bbox=_union_charboxes(textpage, start, end),
+                bbox_space="bottom-left",
+                section_path=path,
+            )
+        )
+
+    for line, start, end in spans:
+        candidate = " ".join(line.split())
+        if not candidate:
+            continue
+        if is_toc:
+            paragraphs.append((candidate, start, end))
+            continue
+        if in_references:
+            marker = candidate.strip().lower().rstrip(":")
+            if marker in _REFERENCE_END:
+                flush_reference()
+                add_heading(candidate, start, end)
+                in_references = False
+                continue
+            if _REF_START.match(candidate):
+                flush_reference()
+            references.append((candidate, start, end))
+            continue
+        if _is_heading(candidate):
+            flush_paragraph()
+            flush_reference()
+            add_heading(candidate, start, end)
+            if candidate.strip().lower().rstrip(":") in {
+                "references",
+                "bibliography",
+                "参考文献",
+            }:
+                in_references = True
+            continue
+        paragraphs.append((candidate, start, end))
+
+    flush_paragraph()
+    flush_reference()
+    state.in_references = in_references
+    return blocks
+
+
+def _blocks_for_page(
+    page: Any, page_number: int, state: _DocState
+) -> list[Block]:
+    textpage = page.get_textpage()
+    try:
+        return _blocks_from_textpage(textpage, page_number, state)
+    finally:
+        close = getattr(textpage, "close", None)
+        if callable(close):
+            close()
 
 
 def _parse_with_docling(path: Path) -> ParsedPaper:
@@ -172,22 +364,13 @@ def _parse_with_pypdfium2(path: Path) -> ParsedPaper:
 
     pdf = pdfium.PdfDocument(str(path))
     blocks: list[Block] = []
+    state = _DocState()
     for index in range(len(pdf)):
         page = pdf[index]
-        textpage = page.get_textpage()
         try:
-            text = textpage.get_text_bounded()
-        except AttributeError:
-            text = textpage.get_text_range()
-        if text and text.strip():
-            for chunk in _split_text(text):
-                blocks.append(_block(index + 1, chunk))
-            for line in text.splitlines():
-                candidate = " ".join(line.split())
-                if _is_heading(candidate):
-                    blocks.append(
-                        _block(index + 1, candidate, kind=BlockKind.heading)
-                    )
+            blocks.extend(_blocks_for_page(page, index + 1, state))
+        finally:
+            _close_page(page)
     return ParsedPaper(pages=len(pdf), blocks=blocks, parse_engine="pypdfium2")
 
 
@@ -258,11 +441,17 @@ def _load_ocr_engine() -> tuple[str, Any] | None:
 
 
 def _ocr_blocks_from_page(
-    page: Any, page_index: int, engine_name: str, engine: Any
+    page: Any,
+    page_index: int,
+    engine_name: str,
+    engine: Any,
+    state: _DocState,
 ) -> list[Block]:
     import numpy as np
 
-    image = page.render(scale=2).to_pil().convert("RGB")
+    scale = 2
+    height = page.get_size()[1]
+    image = page.render(scale=scale).to_pil().convert("RGB")
     array = np.array(image)[:, :, ::-1]  # OpenCV/RapidOCR expects BGR
     blocks: list[Block] = []
     if engine_name == "rapidocr":
@@ -277,18 +466,34 @@ def _ocr_blocks_from_page(
             (line[0], _restore_spaces(str(line[1][0]).strip()))
             for line in ((result[0] if result else []) or [])
         ]
+    stack = state.stack
     for box, text in lines:
         if not text:
             continue
         xs = [float(point[0]) for point in box]
         ys = [float(point[1]) for point in box]
+        # OCR gives top-left pixels at `scale`×; convert to PDF points,
+        # bottom-left origin, which is what the PDF.js highlight expects.
+        bbox = [
+            round(min(xs) / scale, 2),
+            round(height - max(ys) / scale, 2),
+            round(max(xs) / scale, 2),
+            round(height - min(ys) / scale, 2),
+        ]
+        if _is_heading(text):
+            kind = BlockKind.heading
+            path = _update_sections(stack, text)
+        else:
+            kind = BlockKind.paragraph
+            path = [item for _, item in stack]
         blocks.append(
             _block(
                 page_index + 1,
                 text,
-                kind=BlockKind.heading if _is_heading(text) else BlockKind.paragraph,
-                bbox=[min(xs), min(ys), max(xs), max(ys)],
-                bbox_space="top-left",
+                kind=kind,
+                bbox=bbox,
+                bbox_space="bottom-left",
+                section_path=path,
             )
         )
     return blocks
@@ -306,22 +511,16 @@ def _parse_hybrid(
     blocks: list[Block] = []
     ocr_indices: list[int] = []
     text_pages = 0
+    state = _DocState()
     for index in range(total):
         page = pdf[index]
         try:
-            text = _page_text(page)
+            page_blocks = _blocks_for_page(page, index + 1, state)
         finally:
             _close_page(page)
-        if text.strip():
+        if page_blocks:
             text_pages += 1
-            for chunk in _split_text(text):
-                blocks.append(_block(index + 1, chunk))
-            for line in text.splitlines():
-                candidate = " ".join(line.split())
-                if _is_heading(candidate):
-                    blocks.append(
-                        _block(index + 1, candidate, kind=BlockKind.heading)
-                    )
+            blocks.extend(page_blocks)
         else:
             ocr_indices.append(index)
         if progress:
@@ -346,7 +545,7 @@ def _parse_hybrid(
                 try:
                     blocks.extend(
                         _ocr_blocks_from_page(
-                            page, page_index, ocr_engine_name, engine
+                            page, page_index, ocr_engine_name, engine, state
                         )
                     )
                 finally:
@@ -361,17 +560,26 @@ def _parse_hybrid(
                     )
             skipped = len(ocr_indices) - limit
 
+    meta_title = ""
+    try:
+        meta_title = (pdf.get_metadata_dict() or {}).get("Title") or ""
+    except Exception:
+        pass
+    metadata = {
+        "text_pages": text_pages,
+        "ocr_pages": ocr_pages,
+        "ocr_skipped_pages": skipped,
+    }
+    if len(str(meta_title).strip()) >= 8:
+        metadata["title"] = str(meta_title).strip()[:220]
+
     return ParsedPaper(
         pages=total,
         blocks=blocks,
         parse_engine=(
             f"pypdfium2+{ocr_engine_name}" if ocr_pages else "pypdfium2"
         ),
-        metadata={
-            "text_pages": text_pages,
-            "ocr_pages": ocr_pages,
-            "ocr_skipped_pages": skipped,
-        },
+        metadata=metadata,
     )
 
 
@@ -441,17 +649,27 @@ def _parse_with_paddleocr(path: Path) -> ParsedPaper:
     return ParsedPaper(pages=len(pdf), blocks=blocks, parse_engine="paddleocr")
 
 
+_grobid_unavailable = False
+
+
 def extract_references(
     path: str | Path,
     grobid_url: str | None = None,
     max_tail_pages: int = 0,
 ) -> list[Reference]:
+    global _grobid_unavailable
     path = Path(path)
-    try:
-        references = _extract_with_grobid(path, grobid_url or settings.grobid_url)
-    except Exception as exc:
-        logger.warning("GROBID reference extraction failed: %s", exc)
-        references = []
+    references: list[Reference] = []
+    if not _grobid_unavailable:
+        try:
+            references = _extract_with_grobid(
+                path, grobid_url or settings.grobid_url
+            )
+        except Exception as exc:
+            _grobid_unavailable = True
+            logger.warning(
+                "GROBID reference extraction unavailable: %s", exc
+            )
     if references:
         return references
     try:
@@ -500,6 +718,30 @@ def _extract_with_grobid(path: Path, grobid_url: str) -> list[Reference]:
     return references
 
 
+def _guess_title(entry: str) -> str:
+    """Pull a title out of a raw bibliography entry for graph labels."""
+
+    text = re.sub(r"^\[\d+\]\s*", "", entry).strip()
+    parts = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?])\s+", text)
+        if part.strip()
+    ]
+    if len(parts) > 1:
+        def score(part: str) -> tuple[bool, bool, int]:
+            words = part.split()
+            return (
+                part.count(",") == 0,
+                3 <= len(words) <= 30,
+                len(part),
+            )
+
+        best = max(parts[1:], key=score)
+        if len(best) >= 8:
+            return best[:240]
+    return text[:240]
+
+
 def _extract_references_from_text(
     path: Path, max_tail_pages: int = 0
 ) -> list[Reference]:
@@ -539,7 +781,7 @@ def _extract_references_from_text(
         references.append(
             Reference(
                 id=f"r_{uuid.uuid4().hex[:10]}",
-                title=entry[:240],
+                title=_guess_title(entry),
                 raw=entry,
             )
         )

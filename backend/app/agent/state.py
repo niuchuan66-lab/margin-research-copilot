@@ -15,3 +15,4 @@ class AgentState(TypedDict):
     citations: NotRequired[list[dict[str, Any]]]
     trace: NotRequired[list[str]]
     model: NotRequired[str]
+    grounded: NotRequired[bool]
