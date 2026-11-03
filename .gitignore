@@ -23,6 +23,8 @@ frontend/.vite/
 
 # Runtime data and models
 data/
+!backend/tests/data/
+!backend/tests/data/golden_qa.json
 *.sqlite3
 pdf/*.pdf
 !pdf/README.md

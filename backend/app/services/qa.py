@@ -77,11 +77,11 @@ def retrieve_hits(
     index = get_index()
     if not paper_ids or len(paper_ids) <= 1:
         return expand_hits(
-            index.search(question, paper_ids=paper_ids, top_k=top_k)
+            index.search_hybrid(question, paper_ids=paper_ids, top_k=top_k)
         )
     per_paper = max(3, top_k)
     buckets = [
-        index.search(question, paper_ids=[paper_id], top_k=per_paper)
+        index.search_hybrid(question, paper_ids=[paper_id], top_k=per_paper)
         for paper_id in paper_ids
     ]
     interleaved: list[tuple[Chunk, float]] = []

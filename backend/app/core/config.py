@@ -46,6 +46,10 @@ class Settings:
     llm_api_key: str = os.getenv("LLM_API_KEY", "")
     llm_model: str = os.getenv("LLM_MODEL", "deepseek-chat")
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+    # OpenAI-compatible embedding endpoint used by the optional hybrid-search
+    # vector leg; the leg stays off unless EMBEDDING_BASE_URL is set.
+    embedding_base_url: str = os.getenv("EMBEDDING_BASE_URL", "")
+    embedding_api_key: str = os.getenv("EMBEDDING_API_KEY", "")
     reranker_model: str = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 
     cors_origins: tuple[str, ...] = tuple(

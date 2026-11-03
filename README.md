@@ -278,6 +278,24 @@ pdf/                 官方测试 PDF 放置说明（*.pdf 不进仓库）
 | POST | `/api/v1/writing/figure` | Mermaid / Graphviz / TikZ |
 | POST | `/api/v1/writing/chart` | CSV → 折线/柱状/雷达图 + LLM 图注 |
 
+## 检索（混合打分）
+
+问答检索默认使用**三路混合打分**（无需外部服务）：
+
+- **BM25**：纯 Python 实现（k1=1.5, b=0.75），文档频率随入库/删除增量维护；
+- **关键词重叠**：沿用原稀疏重叠分（含整串命中加成）；
+- **向量余弦**（可选）：配置 `EMBEDDING_BASE_URL` 后调用 OpenAI 兼容 `/embeddings`，补齐同义改写召回；未配置时自动跳过，BM25 与重叠按 0.6/0.4 加权，向量开启后按 0.5/0.3/0.2 加权。
+
+三路候选各自 min-max 归一化后合并，同一 `(paper_id, block_id)` 只保留最高分。多篇问答仍按篇召回后合并，避免单一论文占满上下文。
+
+金标回归（21 条问题，页码均取自真实解析数据）：
+
+```bash
+cd backend
+python scripts/eval_golden.py            # 期望 Top-5 页面命中率 >= 80%
+python scripts/eval_golden.py --legacy   # A/B 对比旧的重叠检索
+```
+
 ## 测试数据
 
 把组委会 `pdf/` 目录中的文件放到本仓库 `pdf/`（已 gitignore）：
