@@ -7,7 +7,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Local runs read the repository-level .env; container runs receive env vars
-# from docker-compose and the missing file is harmless.
+# from the platform and the missing file is harmless.
+load_dotenv(Path.cwd() / ".env")
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 
