@@ -132,6 +132,25 @@ class DedupActionResponse(BaseModel):
     removed: str | None = None
 
 
+class VersionChange(BaseModel):
+    kind: Literal["added", "removed", "modified"]
+    new_page: int | None = None
+    new_bbox: list[float] | None = None
+    old_page: int | None = None
+    old_bbox: list[float] | None = None
+    new_text: str | None = None
+    old_text: str | None = None
+    similarity: float = 0.0
+
+
+class VersionDiffResponse(BaseModel):
+    new_id: str
+    old_id: str
+    similarity: float
+    changes: list[VersionChange] = Field(default_factory=list)
+    summary: str = ""
+
+
 class Citation(BaseModel):
     paper_id: str
     paper_title: str | None = None

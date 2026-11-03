@@ -10,11 +10,21 @@ import { errorMessage } from '@/lib/format'
 import type {
   Block,
   Citation,
+  DedupCandidate,
   OutlineItem,
   Paper,
   ReferenceItem,
   TranslatedBlock,
+  VersionChange,
+  VersionDiffResponse,
 } from '@/types'
+
+const KIND_LABELS: Record<'added' | 'removed' | 'modified', string> = {
+  added: '新增',
+  modified: '改写',
+  removed: '删除',
+}
+const DIFF_GROUP_ORDER = ['added', 'modified', 'removed'] as const
 
 const route = useRoute()
 const paper = ref<Paper | null>(null)
@@ -39,6 +49,24 @@ const selectionText = ref('')
 const selectionTranslation = ref('')
 const selectionStatus = ref('')
 const translatingSelection = ref(false)
+const versions = ref<DedupCandidate[]>([])
+const diffOpen = ref(false)
+const diffTarget = ref('')
+const diff = ref<VersionDiffResponse | null>(null)
+const diffLoading = ref(false)
+const diffError = ref('')
+
+const groupedChanges = computed(() => {
+  const groups: Record<'added' | 'removed' | 'modified', VersionChange[]> = {
+    added: [],
+    removed: [],
+    modified: [],
+  }
+  for (const change of diff.value?.changes ?? []) {
+    groups[change.kind].push(change)
+  }
+  return groups
+})
 
 const paperId = computed(() => String(route.params.id ?? ''))
 const pageBlocks = ref<Block[]>([])
@@ -65,13 +93,31 @@ async function load(): Promise<void> {
     paper.value = detail
     outline.value = tree
     references.value = refs
+    versions.value = []
+    diffOpen.value = false
+    diffTarget.value = ''
+    diff.value = null
+    diffError.value = ''
     const queryPage = Number(route.query.page)
     page.value = Number.isFinite(queryPage) && queryPage > 0 ? queryPage : 1
     await loadPageBlocks()
+    void loadVersions()
   } catch (error) {
     failure.value = errorMessage(error)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadVersions(): Promise<void> {
+  if (!paperId.value || paper.value?.status !== 'ready') {
+    versions.value = []
+    return
+  }
+  try {
+    versions.value = await api.paperVersions(paperId.value)
+  } catch {
+    versions.value = []
   }
 }
 
@@ -199,6 +245,53 @@ async function translatePage(): Promise<void> {
     translating.value = false
   }
 }
+
+function openDiffPanel(): void {
+  diffOpen.value = !diffOpen.value
+  if (diffOpen.value) {
+    if (!versions.value.some((item) => item.paper_id === diffTarget.value)) {
+      diffTarget.value = versions.value[0]?.paper_id ?? ''
+      diff.value = null
+      diffError.value = ''
+    }
+  } else {
+    diff.value = null
+    diffError.value = ''
+  }
+}
+
+async function runDiff(): Promise<void> {
+  if (!paperId.value || !diffTarget.value || diffLoading.value) {
+    return
+  }
+  diffLoading.value = true
+  diffError.value = ''
+  try {
+    diff.value = await api.paperDiff(paperId.value, diffTarget.value)
+  } catch (error) {
+    diff.value = null
+    diffError.value = errorMessage(error)
+  } finally {
+    diffLoading.value = false
+  }
+}
+
+function selectChange(change: VersionChange): void {
+  if (change.new_page == null) {
+    return
+  }
+  page.value = change.new_page
+  highlight.value = change.new_bbox
+    ? { bbox: change.new_bbox, space: 'bottom-left' }
+    : null
+}
+
+function trimmedChangeText(change: VersionChange): string {
+  const text = (change.new_text ?? change.old_text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text.length > 120 ? `${text.slice(0, 120)}…` : text
+}
 </script>
 
 <template>
@@ -290,14 +383,24 @@ async function translatePage(): Promise<void> {
               下一页
             </button>
           </div>
-          <button
-            class="btn btn-small"
-            type="button"
-            :disabled="translating || !pageBlocks.length"
-            @click="translatePage"
-          >
-            {{ translating ? '翻译中…' : '翻译本页' }}
-          </button>
+          <div class="row">
+            <button
+              class="btn btn-small"
+              type="button"
+              :disabled="translating || !pageBlocks.length"
+              @click="translatePage"
+            >
+              {{ translating ? '翻译中…' : '翻译本页' }}
+            </button>
+            <button
+              v-if="versions.length"
+              class="btn btn-ghost btn-small"
+              type="button"
+              @click="openDiffPanel"
+            >
+              {{ diffOpen ? '收起版本差异' : '版本差异' }}
+            </button>
+          </div>
         </div>
 
         <div class="panel pdf-panel">
@@ -308,6 +411,77 @@ async function translatePage(): Promise<void> {
             :highlight="highlight"
             @loaded="onLoaded"
           />
+        </div>
+
+        <div v-if="diffOpen" class="panel diff-panel">
+          <div class="panel-head">
+            <span class="panel-title">版本差异</span>
+            <span v-if="diff" class="mono faint">
+              相似度 {{ (diff.similarity * 100).toFixed(1) }}% ·
+              {{ diff.changes.length }} 处变化
+            </span>
+          </div>
+          <div class="panel-body stack">
+            <div class="row">
+              <select v-model="diffTarget" class="input diff-select">
+                <option
+                  v-for="candidate in versions"
+                  :key="candidate.paper_id"
+                  :value="candidate.paper_id"
+                >
+                  {{ candidate.title ?? candidate.paper_id }}（相似度
+                  {{ (candidate.similarity * 100).toFixed(0) }}%）
+                </option>
+              </select>
+              <button
+                class="btn btn-small"
+                type="button"
+                :disabled="diffLoading || !diffTarget"
+                @click="runDiff"
+              >
+                {{ diffLoading ? '对比中…' : '开始对比' }}
+              </button>
+            </div>
+            <p v-if="diffError" class="error-line">{{ diffError }}</p>
+            <div v-if="diff" class="stack">
+              <p class="diff-summary">{{ diff.summary }}</p>
+              <details
+                v-for="kind in DIFF_GROUP_ORDER"
+                :key="kind"
+                class="diff-group"
+                :open="kind !== 'removed'"
+              >
+                <summary class="diff-group-head">
+                  {{ KIND_LABELS[kind] }}
+                  <span class="mono faint">{{ groupedChanges[kind].length }}</span>
+                </summary>
+                <div class="diff-group-body">
+                  <button
+                    v-for="(change, index) in groupedChanges[kind]"
+                    :key="index"
+                    class="diff-item"
+                    type="button"
+                    :disabled="change.new_page == null"
+                    @click="selectChange(change)"
+                  >
+                    <span class="mono faint diff-page">
+                      {{
+                        change.new_page != null
+                          ? `p.${change.new_page}`
+                          : change.old_page != null
+                            ? `旧版 p.${change.old_page}`
+                            : '—'
+                      }}
+                    </span>
+                    <span class="diff-text">{{ trimmedChangeText(change) }}</span>
+                  </button>
+                  <p v-if="!groupedChanges[kind].length" class="faint diff-empty">
+                    无
+                  </p>
+                </div>
+              </details>
+            </div>
+          </div>
         </div>
 
         <div v-if="translations.length" class="panel translation-panel">
@@ -522,6 +696,98 @@ async function translatePage(): Promise<void> {
   color: var(--ink);
   font-size: 13px;
   line-height: 1.7;
+}
+
+.diff-panel {
+  margin-top: 12px;
+}
+
+.diff-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.diff-summary {
+  padding: 10px 12px;
+  border: 1px solid var(--line, #e6e8e2);
+  border-radius: 6px;
+  background: var(--paper-2, #faf9f5);
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.diff-group {
+  border: 1px solid var(--line, #e6e8e2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.diff-group + .diff-group {
+  margin-top: 8px;
+}
+
+.diff-group-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--paper-2, #faf9f5);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.diff-group-head::-webkit-details-marker {
+  display: none;
+}
+
+.diff-group-body {
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+}
+
+.diff-item {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12px;
+  text-align: left;
+}
+
+.diff-item:hover:not(:disabled) {
+  background: var(--paper-2, #faf9f5);
+  color: var(--ink);
+}
+
+.diff-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.diff-page {
+  flex: none;
+  min-width: 30px;
+}
+
+.diff-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.5;
+}
+
+.diff-empty {
+  padding: 8px;
+  font-size: 12px;
 }
 
 .answer-block {

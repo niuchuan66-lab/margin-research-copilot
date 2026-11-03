@@ -259,6 +259,8 @@ pdf/                 官方测试 PDF 放置说明（*.pdf 不进仓库）
 | POST | `/api/v1/papers/{id}/parse` | 启动解析任务（返回 job，不阻塞） |
 | GET | `/api/v1/papers/{id}/parse-status` | 解析进度 |
 | POST | `/api/v1/papers/{id}/dedup` | 处理重复：`action=replace/keep` |
+| GET | `/api/v1/papers/{id}/versions` | 同源旧版本列表（相似度 ≥0.45） |
+| GET | `/api/v1/papers/{id}/diff/{old_id}` | 两版段落级差异 + LLM 修订总结 |
 | GET | `/api/v1/papers/{id}?include_blocks=false` | 论文元数据（长文档用） |
 | GET | `/api/v1/papers/{id}/blocks?page=N` | 按页取文本块 |
 | GET | `/api/v1/papers/{id}/file` | 原始 PDF |
@@ -295,6 +297,17 @@ cd backend
 python scripts/eval_golden.py            # 期望 Top-5 页面命中率 >= 80%
 python scripts/eval_golden.py --legacy   # A/B 对比旧的重叠检索
 ```
+
+## 版本差异
+
+同一论文的不同版本（如 arXiv v1/v7）入库后，阅读器工具栏出现「版本差异」入口：
+
+- **同源发现**：基于标题/文件名与正文重叠度（≥0.45）自动列出旧版本；
+- **段落对齐**：5-gram Jaccard + 倒排 shingle 索引做段落级贪心对齐，按相似度分类为新增（<0.35）、改写（0.35–0.85）、删除，未变化段落（≥0.85）不展示；
+- **LLM 修订总结**：将差异清单交给 LLM 生成中文总结，页码标签（`[新版 p.X]`/`[旧版 p.Y]`）经正则校验后展示；未配置 LLM 时回退到确定性统计总结；
+- **交互**：三组折叠列表，点击条目跳转对应页并高亮 bbox。
+
+验证（真实数据 v1/v7）：整体相似度 0.7174，47 处变化（25 改写 / 14 新增 / 8 删除），每条差异均带页码锚点。
 
 ## 测试数据
 

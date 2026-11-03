@@ -12,17 +12,20 @@ from app.models.schemas import (
     Block,
     DedupActionRequest,
     DedupActionResponse,
+    DedupCandidate,
     DedupResult,
     Paper,
     PaperStatus,
     PaperSummary,
     ParseJobResponse,
     UploadResponse,
+    VersionDiffResponse,
 )
-from app.services.dedup import compare
+from app.services.dedup import compare, jaccard, shingles, version_number
 from app.services.indexing import index_paper, remove_paper_from_index
 from app.services.jobs import ParseJob, jobs
 from app.services.parsing import parse_pdf
+from app.services.version_diff import diff_papers
 from app.store import paper_store
 
 router = APIRouter(prefix="/papers", tags=["papers"])
@@ -225,6 +228,55 @@ def delete_paper(paper_id: str) -> dict[str, bool]:
     if paper is None:
         raise HTTPException(status_code=404, detail="论文不存在")
     return {"deleted": _delete_paper(paper_id)}
+
+
+@router.get("/{paper_id}/versions", response_model=list[DedupCandidate])
+def paper_versions(paper_id: str) -> list[DedupCandidate]:
+    paper = paper_store.get(paper_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    if paper.status != PaperStatus.ready:
+        return []
+    text = "\n".join(block.text for block in paper.blocks[:200])
+    new_shingles = shingles(text)
+    results: list[DedupCandidate] = []
+    for existing in paper_store.list():
+        if existing.id == paper.id or existing.status != PaperStatus.ready:
+            continue
+        if not existing.blocks:
+            continue
+        old_text = "\n".join(block.text for block in existing.blocks[:200])
+        similarity = jaccard(new_shingles, shingles(old_text))
+        if similarity < 0.45:
+            continue
+        current_version = version_number(paper.filename)
+        candidate_version = version_number(existing.filename)
+        results.append(
+            DedupCandidate(
+                paper_id=existing.id,
+                title=existing.title,
+                similarity=round(similarity, 4),
+                reason="同源版本",
+                newer_version=(
+                    current_version is not None
+                    and candidate_version is not None
+                    and candidate_version > current_version
+                ),
+            )
+        )
+    results.sort(key=lambda item: item.similarity, reverse=True)
+    return results
+
+
+@router.get("/{paper_id}/diff/{old_id}", response_model=VersionDiffResponse)
+async def paper_diff(paper_id: str, old_id: str) -> VersionDiffResponse:
+    new_paper = paper_store.get(paper_id)
+    old_paper = paper_store.get(old_id)
+    if new_paper is None or old_paper is None:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    if paper_id == old_id:
+        raise HTTPException(status_code=400, detail="不能与自身对比")
+    return await diff_papers(new_paper, old_paper)
 
 
 @router.post("/{paper_id}/dedup", response_model=DedupActionResponse)

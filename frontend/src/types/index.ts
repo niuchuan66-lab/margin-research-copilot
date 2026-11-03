@@ -79,6 +79,25 @@ export interface DedupActionResponse {
   removed: string | null
 }
 
+export interface VersionChange {
+  kind: 'added' | 'removed' | 'modified'
+  new_page: number | null
+  new_bbox: number[] | null
+  old_page: number | null
+  old_bbox: number[] | null
+  new_text: string | null
+  old_text: string | null
+  similarity: number
+}
+
+export interface VersionDiffResponse {
+  new_id: string
+  old_id: string
+  similarity: number
+  changes: VersionChange[]
+  summary: string
+}
+
 export interface Citation {
   paper_id: string
   paper_title: string | null

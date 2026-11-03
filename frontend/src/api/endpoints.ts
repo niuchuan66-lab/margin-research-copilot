@@ -4,6 +4,7 @@ import type {
   Block,
   ChartResponse,
   DedupActionResponse,
+  DedupCandidate,
   DiscoveryHit,
   FigureResponse,
   FutureWorkResponse,
@@ -18,6 +19,7 @@ import type {
   TextTranslationResponse,
   TranslatedBlock,
   UploadResponse,
+  VersionDiffResponse,
 } from '@/types'
 
 import { apiFetch } from './client'
@@ -51,6 +53,10 @@ export const api = {
         candidate_id: candidateId ?? null,
       }),
     }),
+  paperVersions: (paperId: string) =>
+    apiFetch<DedupCandidate[]>(`/papers/${paperId}/versions`),
+  paperDiff: (newId: string, oldId: string) =>
+    apiFetch<VersionDiffResponse>(`/papers/${newId}/diff/${oldId}`),
   deletePaper: (paperId: string) =>
     apiFetch<{ deleted: boolean }>(`/papers/${paperId}`, { method: 'DELETE' }),
   paperFileUrl: (paperId: string) => `/api/v1/papers/${paperId}/file`,

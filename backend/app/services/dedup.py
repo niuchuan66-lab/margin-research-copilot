@@ -31,7 +31,7 @@ def jaccard(left: set[tuple[str, ...]], right: set[tuple[str, ...]]) -> float:
     return len(left & right) / len(left | right)
 
 
-def _version(filename: str | None) -> int | None:
+def version_number(filename: str | None) -> int | None:
     if not filename:
         return None
     match = _VERSION_RE.search(filename)
@@ -55,8 +55,8 @@ def compare(
         similarity = jaccard(new_shingles, shingles(text))
         if similarity <= best_similarity:
             continue
-        new_version = _version(new_filename)
-        old_version = _version(title or "")
+        new_version = version_number(new_filename)
+        old_version = version_number(title or "")
         newer = (
             new_version is not None
             and old_version is not None
