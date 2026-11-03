@@ -4,7 +4,8 @@
 从文献导入开始，覆盖解析、抗幻觉问答、双语阅读、发现、引用图谱与写作辅助。
 
 > 当前状态：**可运行原型**。已接入 DeepSeek、扫描件 OCR、长文档异步解析、语义去重与 SQLite 持久化。  
-> 线上演示：<https://niuchuanbo-margin-research-copilot.ms.show>
+> 线上演示：<https://niuchuanbo-margin-research-copilot.ms.show>  
+> 项目书：[docs/项目书.md](docs/项目书.md)
 
 ## 六个模块与页面
 
@@ -302,7 +303,7 @@ python -m app.workers.parse_cli ../pdf/1706.03762v1.pdf --blocks 5
 | 批量导入 | 39/39 解析成功（38 篇文本层 + 1 篇纯扫描） |
 | v1 / v7 语义去重 | 5-gram Jaccard **0.7174**；上传旧版时建议保留新版 |
 | 扫描件 `1706.03762v1_img.pdf` | RapidOCR 15/15 页、955 块、161.7 秒，全部带 bbox |
-| 文本层 `1706.03762v1.pdf` | 101 块；101/101 带 bbox，100/100 有章节路径 |
+| 文本层 `1706.03762v1.pdf` | 101 块；101/101 带 bbox，100/101 有章节路径 |
 | 541 页 UDL | 2120 块、约 14 秒；537 页文本层 + 4 页 OCR；442 个标题节点 |
 | 单篇问答 | β1=0.9、β2=0.98、ε=1e-9、28.4 BLEU、8×P100/3.5 天，均带页码与 bbox |
 | 多篇问答 | GPT-1 / GPT-3 / BERT / Transformer 四篇联合检索；按论文分别召回后合并，避免单一论文占满上下文 |
