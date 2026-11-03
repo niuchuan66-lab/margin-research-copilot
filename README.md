@@ -217,6 +217,68 @@ OCR_MAX_PAGES=80       # 长扫描件最多 OCR 的页数；0 表示不限制
 - 正常停止服务时关闭 SQLite 连接并合并 WAL；备份时拷贝整个 `data/` 目录
 - PostgreSQL / Qdrant 仍是生产替换项：`PaperStore`、`JobStore`、`IndexStore` 的接口保持不变，后续替换实现即可
 
+## 稳定性与保活
+
+上传校验（`POST /api/v1/papers` 在落盘前依次检查）：
+
+| 检查 | 失败返回 |
+|---|---|
+| 后缀必须是 `.pdf`（大小写不敏感） | 400 `只接受 PDF 文件` |
+| `Content-Type` 为 `application/pdf` 或 `application/octet-stream` | 400 `只接受 PDF 文件` |
+| 前 1024 字节内出现 `%PDF` 文件头 | 400 `文件不是有效的 PDF（缺少 %PDF 文件头）` |
+| 大小不超过 `MAX_UPLOAD_MB` | 413 `文件超过 120 MB` |
+| 页数不超过 `MAX_PDF_PAGES`（用 pypdfium2 读页数；校验失败即删除临时文件） | 413 `PDF 页数 N 超过上限 M` |
+
+解析并发：`_run_parse` 由 `asyncio.Semaphore(PARSE_CONCURRENCY)` 保护，默认同一时间最多 2 个解析任务；其余任务状态先变为 `queued`（`排队等待解析`），拿到信号量后转为 `running`。进度接口和前端轮询无需感知这一层。
+
+统一异常处理：每个请求分配 `request_id`（12 位 hex，响应头 `X-Request-ID` 可回传），日志记录 `方法 路径 -> 状态码 (耗时ms, rid=...)`；未捕获异常返回 `500 {"detail": "服务器内部错误", "request_id": "..."}`，日志中用同一 `rid` 输出堆栈，便于按请求追踪。
+
+健康检查深探测（`GET /api/v1/health` 新增字段，均为可选）：
+
+| 字段 | 含义 |
+|---|---|
+| `index_chunks` | 当前检索索引中的文本块数 |
+| `llm_latency_ms` | 一次 1-token 对话往返耗时；未配置/服务不可用/超过 4s 时为 `null` |
+| `memory_rss_mb` | 进程常驻内存（Windows 用 psapi，POSIX 读 `/proc/self/statm`） |
+
+保活脚本（纯标准库，可直接交给 Windows 任务计划）：
+
+```bash
+python backend/scripts/keepalive.py --once        # 单次探测，退出码 0 健康 / 1 异常
+python backend/scripts/keepalive.py --interval 600 --max-failures 3
+```
+
+默认探测线上演示地址 `https://niuchuanbo-margin-research-copilot.ms.show/api/v1/health`；连续 3 次失败输出 `ALERT` 并以退出码 2 结束。Windows 定时任务示例：
+
+```bat
+schtasks /Create /SC MINUTE /MO 10 /TN MarginKeepalive ^
+  /TR "\"<python.exe>\" -X utf8 <repo>\backend\scripts\keepalive.py --once"
+```
+
+压测脚本（异步 httpx，跑完自动删除上传的论文）：
+
+```bash
+python backend/scripts/stress.py --url http://127.0.0.1:8000 ^
+  --pdf data/uploads/<sample>.pdf --parses 5 --qas 20
+```
+
+2026-11-03 本机实测（单篇 686 KB 论文、5 并发解析、20 并发 `/qa/ask`）：
+
+| 指标 | 结果 |
+|---|---|
+| 解析并发 | 2 个直接运行（≈68.5s），3 个 `queued-then-ran`，全部 `done` |
+| 解析墙钟 | 168.6s / 5 篇（符合并发上限 2 的 3 轮排队） |
+| 问答延迟 | 20 并发，均值 25.0s，P50 25.8s，P95 26.3s |
+| 进程 RSS | 69.3 MB → 217.2 MB（增量 147.9 MB，含解析中间数据） |
+
+可调参数：
+
+```text
+MAX_UPLOAD_MB=120      # 上传大小上限
+MAX_PDF_PAGES=2000     # 页数上限（超限 413）
+PARSE_CONCURRENCY=2    # 同时运行的解析任务数
+```
+
 ## 降级行为
 
 骨架在依赖未就绪时仍可启动：
@@ -239,6 +301,7 @@ backend/
     models/          Pydantic 数据契约
     db/              PostgreSQL 模型与会话（可选）
     workers/         离线解析 CLI
+  scripts/           检索评测、压力测试、保活脚本
   tests/
 frontend/
   src/

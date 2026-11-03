@@ -31,6 +31,8 @@ class Settings:
     data_dir: Path = _env_path("DATA_DIR", "./data")
     upload_dir: Path = _env_path("UPLOAD_DIR", "./data/uploads")
     max_upload_mb: int = int(os.getenv("MAX_UPLOAD_MB", "120"))
+    max_pdf_pages: int = int(os.getenv("MAX_PDF_PAGES", "2000"))
+    parse_concurrency: int = int(os.getenv("PARSE_CONCURRENCY", "2"))
     docling_max_pages: int = int(os.getenv("DOCLING_MAX_PAGES", "60"))
     ocr_max_pages: int = int(os.getenv("OCR_MAX_PAGES", "80"))
 

@@ -323,6 +323,9 @@ class HealthResponse(BaseModel):
     version: str
     capabilities: dict[str, bool]
     degraded: list[str] = Field(default_factory=list)
+    index_chunks: int | None = None
+    llm_latency_ms: float | None = None
+    memory_rss_mb: float | None = None
 
 
 UploadResponse.model_rebuild()

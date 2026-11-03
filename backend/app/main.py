@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
@@ -63,6 +65,36 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.api_prefix)
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    request.state.request_id = request_id
+    start = time.perf_counter()
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    duration_ms = round((time.perf_counter() - start) * 1000, 1)
+    logger.info(
+        "%s %s -> %s (%.1fms, rid=%s)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        request_id,
+    )
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    request_id = getattr(request.state, "request_id", uuid.uuid4().hex[:12])
+    logger.exception("Unhandled error (rid=%s): %s", request_id, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "服务器内部错误", "request_id": request_id},
+        headers={"X-Request-ID": request_id},
+    )
 
 
 @app.get("/", tags=["meta"])

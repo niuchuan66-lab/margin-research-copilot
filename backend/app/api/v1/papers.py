@@ -31,6 +31,9 @@ from app.store import paper_store
 router = APIRouter(prefix="/papers", tags=["papers"])
 
 _parse_tasks: set[asyncio.Task[None]] = set()
+_parse_semaphore = asyncio.Semaphore(settings.parse_concurrency)
+
+_PDF_MIME_TYPES = {"application/pdf", "application/octet-stream"}
 
 
 def _summary(paper: Paper) -> PaperSummary:
@@ -64,8 +67,13 @@ async def upload_paper(file: UploadFile = File(...)) -> UploadResponse:  # noqa:
     filename = file.filename or "untitled.pdf"
     if Path(filename).suffix.lower() != ".pdf":
         raise HTTPException(status_code=400, detail="只接受 PDF 文件")
+    content_type = (file.content_type or "").lower()
+    if content_type and content_type not in _PDF_MIME_TYPES:
+        raise HTTPException(status_code=400, detail="只接受 PDF 文件")
 
     content = await file.read()
+    if content.find(b"%PDF") == -1 or content.find(b"%PDF") > 1024:
+        raise HTTPException(status_code=400, detail="文件不是有效的 PDF（缺少 %PDF 文件头）")
     if len(content) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(
             status_code=413,
@@ -76,6 +84,11 @@ async def upload_paper(file: UploadFile = File(...)) -> UploadResponse:  # noqa:
     paper_id = uuid.uuid4().hex[:12]
     path = settings.upload_dir / f"{paper_id}.pdf"
     path.write_bytes(content)
+    try:
+        _check_page_limit(path)
+    except HTTPException:
+        path.unlink(missing_ok=True)
+        raise
 
     paper = Paper(
         id=paper_id,
@@ -85,6 +98,20 @@ async def upload_paper(file: UploadFile = File(...)) -> UploadResponse:  # noqa:
     )
     paper_store.add(paper)
     return UploadResponse(paper=_summary(paper))
+
+
+def _check_page_limit(path: Path) -> None:
+    try:
+        import pypdfium2 as pdfium
+
+        pages = len(pdfium.PdfDocument(str(path)))
+    except Exception:
+        return
+    if pages > settings.max_pdf_pages:
+        raise HTTPException(
+            status_code=413,
+            detail=f"PDF 页数 {pages} 超过上限 {settings.max_pdf_pages}",
+        )
 
 
 @router.get("/{paper_id}", response_model=Paper)
@@ -160,6 +187,23 @@ async def _run_parse(job_id: str, paper_id: str, path: Path) -> None:
         )
         return
 
+    jobs.update(
+        job_id,
+        status="queued",
+        stage="queued",
+        message="排队等待解析",
+    )
+    async with _parse_semaphore:
+        jobs.update(
+            job_id,
+            status="running",
+            stage="running",
+            message="开始解析",
+        )
+        await _parse_paper(job_id, paper_id, path, paper)
+
+
+async def _parse_paper(job_id: str, paper_id: str, path: Path, paper: Paper) -> None:
     def progress(stage: str, current: int, total: int, message: str) -> None:
         percent = round(min(current, total) / total * 100, 1) if total else 0.0
         jobs.update(
