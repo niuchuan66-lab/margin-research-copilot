@@ -5,7 +5,8 @@
 
 > 当前状态：**可运行原型**。已接入 DeepSeek、扫描件 OCR、长文档异步解析、语义去重与 SQLite 持久化。  
 > 线上演示：<https://niuchuanbo-margin-research-copilot.ms.show>  
-> 项目书：[docs/项目书.md](docs/项目书.md)
+> 项目书：[docs/项目书.md](docs/项目书.md)  
+> 后续改进方案：[docs/Qoder后续技术方案.md](docs/Qoder后续技术方案.md)
 
 ## 六个模块与页面
 
