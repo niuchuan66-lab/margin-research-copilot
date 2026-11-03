@@ -118,6 +118,132 @@ _REF_START = re.compile(r"^(?:\[\d+\]|\d+\.\s+[A-Z])")
 _REFERENCE_END = {"appendix", "acknowledgements", "acknowledgments"}
 _TOC_LEADER = re.compile(r"(?:\.\s*){4,}")
 
+# --- light-weight block kind hints (table / formula / figure caption) ---
+
+_CAPTION_START = re.compile(
+    r"^(?i:figure|fig\.?|table)\s*(?:[A-Z]?\d+|[IVX]+)\s*(?:[:.]\s*|\s+[A-Z])"
+)
+_MATH_SYMBOLS = set("=<>±×÷−–∑∫√π∞≈≤≥≠→←↔∂∇·")
+_LONG_WORD = re.compile(r"[A-Za-z]{3,}")
+_COLUMN_GAP_PT = 12.0
+_COLUMN_TOLERANCE_PT = 6.0
+
+
+def _looks_like_caption(line: str) -> bool:
+    text = line.strip()
+    return 0 < len(text) <= 300 and bool(_CAPTION_START.match(text))
+
+
+def _looks_like_formula(line: str) -> bool:
+    """Equation-heavy line: math symbols dominate and prose words are few."""
+
+    text = line.strip()
+    if not 3 <= len(text) <= 200:
+        return False
+    if _looks_like_caption(text):
+        return False
+    math_hits = sum(1 for char in text if char in _MATH_SYMBOLS)
+    if "=" not in text and math_hits < 2:
+        return False
+    words = _LONG_WORD.findall(text)
+    if len(words) > 8:
+        return False
+    dense = len(text.replace(" ", ""))
+    if not dense:
+        return False
+    if "=" in text and len(text) <= 80 and len(words) <= 4:
+        return True
+    mathy = sum(
+        1
+        for char in text
+        if char.isdigit() or char in _MATH_SYMBOLS or char in "()[]{}^_/\\"
+    )
+    return mathy / dense >= 0.35 and math_hits >= 2
+
+
+def _hint_kind(text: str) -> BlockKind:
+    """Line-level kind hint for OCR output (no column geometry available)."""
+
+    if _looks_like_caption(text):
+        return BlockKind.figure_caption
+    if _looks_like_formula(text):
+        return BlockKind.formula
+    return BlockKind.paragraph
+
+
+def _line_column_metrics(
+    textpage: Any, spans: list[tuple[str, int, int]]
+) -> list[list[tuple[float, int]]]:
+    """Per-line column boundaries as (x, char offset after the >=12pt gap)."""
+
+    metrics: list[list[tuple[float, int]]] = []
+    for _text, start, end in spans:
+        gaps: list[tuple[float, int]] = []
+        previous_x1: float | None = None
+        for index in range(start, end):
+            try:
+                x0, y0, x1, y1 = textpage.get_charbox(index)
+            except Exception:
+                continue
+            if x1 <= x0 or y1 <= y0:
+                continue
+            if previous_x1 is not None and x0 - previous_x1 > _COLUMN_GAP_PT:
+                gaps.append((round(x0, 1), index - start))
+            previous_x1 = x1
+        metrics.append(gaps)
+    return metrics
+
+
+def _row_like(line: str, gaps: list[tuple[float, int]]) -> bool:
+    """A table row has aligned columns; guard 2-column prose with a numeric cell."""
+
+    text = line.strip()
+    if not 4 <= len(text) <= 200:
+        return False
+    if len(gaps) >= 2:
+        return True
+    if len(gaps) == 1:
+        _x, index = gaps[0]
+        cell = line[index:].strip()
+        if not cell or len(cell) > 80:
+            return False
+        return bool(re.match(r"^[O0-9(+\-−–.·]", cell)) or len(_LONG_WORD.findall(cell)) <= 2
+    return False
+
+
+def _rows_aligned(left: list[tuple[float, int]], right: list[tuple[float, int]]) -> bool:
+    if not left or not right:
+        return False
+    return (
+        abs(left[0][0] - right[0][0]) <= _COLUMN_TOLERANCE_PT
+        and abs(left[-1][0] - right[-1][0]) <= _COLUMN_TOLERANCE_PT
+    )
+
+
+def _table_line_indexes(
+    spans: list[tuple[str, int, int]], metrics: list[list[tuple[float, int]]]
+) -> set[int]:
+    """Indexes that belong to a run of >=2 consecutive, column-aligned rows."""
+
+    table: set[int] = set()
+    run: list[int] = []
+    for index, (text, _start, _end) in enumerate(spans):
+        gaps = metrics[index]
+        if _row_like(text, gaps):
+            if run and _rows_aligned(metrics[run[-1]], gaps):
+                run.append(index)
+                continue
+            if len(run) >= 2:
+                table.update(run)
+            run = [index]
+        else:
+            if len(run) >= 2:
+                table.update(run)
+            run = []
+    if len(run) >= 2:
+        table.update(run)
+    return table
+
 
 class _DocState:
     """Section state carried across pages."""
@@ -192,12 +318,39 @@ def _blocks_from_textpage(
     stack = state.stack
     paragraphs: list[tuple[str, int, int]] = []
     references: list[tuple[str, int, int]] = []
+    pending_table: list[tuple[str, int, int]] = []
     in_references = state.in_references
     spans = _line_spans(raw)
     is_toc = sum(1 for line, _, _ in spans if _TOC_LEADER.search(line)) >= 3
+    table_lines: set[int] = set()
+    if not is_toc:
+        metrics = _line_column_metrics(textpage, spans)
+        table_lines = _table_line_indexes(spans, metrics)
 
     def current_path() -> list[str]:
         return [item for _, item in stack]
+
+    def flush_table() -> None:
+        nonlocal pending_table
+        if not pending_table:
+            return
+        if len(pending_table) >= 2:
+            text = "\n".join(item[0] for item in pending_table)
+            blocks.append(
+                _block(
+                    page_number,
+                    text,
+                    kind=BlockKind.table,
+                    bbox=_union_charboxes(
+                        textpage, pending_table[0][1], pending_table[-1][2]
+                    ),
+                    bbox_space="bottom-left",
+                    section_path=current_path(),
+                )
+            )
+        else:
+            paragraphs.extend(pending_table)
+        pending_table = []
 
     def flush_paragraph() -> None:
         nonlocal paragraphs
@@ -254,13 +407,18 @@ def _blocks_from_textpage(
             )
         )
 
-    for line, start, end in spans:
+    for index, (line, start, end) in enumerate(spans):
         candidate = " ".join(line.split())
         if not candidate:
             continue
         if is_toc:
             paragraphs.append((candidate, start, end))
             continue
+        if index in table_lines:
+            flush_paragraph()
+            pending_table.append((candidate, start, end))
+            continue
+        flush_table()
         if in_references:
             marker = candidate.strip().lower().rstrip(":")
             if marker in _REFERENCE_END:
@@ -283,8 +441,23 @@ def _blocks_from_textpage(
             }:
                 in_references = True
             continue
+        caption = _looks_like_caption(candidate)
+        if caption or _looks_like_formula(candidate):
+            flush_paragraph()
+            blocks.append(
+                _block(
+                    page_number,
+                    candidate,
+                    kind=BlockKind.figure_caption if caption else BlockKind.formula,
+                    bbox=_union_charboxes(textpage, start, end),
+                    bbox_space="bottom-left",
+                    section_path=current_path(),
+                )
+            )
+            continue
         paragraphs.append((candidate, start, end))
 
+    flush_table()
     flush_paragraph()
     flush_reference()
     state.in_references = in_references
@@ -484,7 +657,7 @@ def _ocr_blocks_from_page(
             kind = BlockKind.heading
             path = _update_sections(stack, text)
         else:
-            kind = BlockKind.paragraph
+            kind = _hint_kind(text)
             path = [item for _, item in stack]
         blocks.append(
             _block(
@@ -569,6 +742,11 @@ def _parse_hybrid(
         "text_pages": text_pages,
         "ocr_pages": ocr_pages,
         "ocr_skipped_pages": skipped,
+        "block_kinds": {
+            kind.value: sum(1 for block in blocks if block.kind == kind)
+            for kind in BlockKind
+            if any(block.kind == kind for block in blocks)
+        },
     }
     if len(str(meta_title).strip()) >= 8:
         metadata["title"] = str(meta_title).strip()[:220]
@@ -604,7 +782,7 @@ def _parse_with_rapidocr(path: Path) -> ParsedPaper:
                 continue
             xs = [float(point[0]) for point in box]
             ys = [float(point[1]) for point in box]
-            kind = BlockKind.heading if _is_heading(text) else BlockKind.paragraph
+            kind = BlockKind.heading if _is_heading(text) else _hint_kind(text)
             blocks.append(
                 _block(
                     index + 1,
@@ -642,6 +820,7 @@ def _parse_with_paddleocr(path: Path) -> ParsedPaper:
                 _block(
                     index + 1,
                     text,
+                    kind=_hint_kind(text),
                     bbox=[min(xs), min(ys), max(xs), max(ys)],
                     bbox_space="top-left",
                 )

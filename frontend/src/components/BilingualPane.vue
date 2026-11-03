@@ -13,6 +13,7 @@ interface GroupBlock {
   text: string
   translation: string | null
   status: string
+  kind: string
 }
 
 interface Group {
@@ -74,6 +75,7 @@ const translatedByPage = computed(() => {
 
 const groups = computed<Group[]>(() => {
   const result: Group[] = []
+  const kindById = new Map(props.blocks.map((block) => [block.id, block.kind]))
   for (const [pageNumber, items] of translatedByPage.value) {
     result.push({
       page: pageNumber,
@@ -82,6 +84,7 @@ const groups = computed<Group[]>(() => {
         text: item.source,
         translation: item.translation,
         status: item.status,
+        kind: kindById.get(item.block_id) ?? '',
       })),
     })
   }
@@ -95,6 +98,7 @@ const groups = computed<Group[]>(() => {
           text: block.text,
           translation: null,
           status: '',
+          kind: block.kind,
         })),
       })
     } else {
@@ -106,6 +110,7 @@ const groups = computed<Group[]>(() => {
             text: block.text,
             translation: null,
             status: '',
+            kind: block.kind,
           })
         }
       }
@@ -116,6 +121,16 @@ const groups = computed<Group[]>(() => {
 })
 
 const translatedPages = computed(() => translatedByPage.value.size)
+
+const KIND_LABELS: Record<string, string> = {
+  table: '表格',
+  formula: '公式',
+  figure_caption: '图注',
+}
+
+function kindLabel(kind: string): string {
+  return KIND_LABELS[kind] ?? ''
+}
 
 function citationParts(text: string): CitationPart[] {
   const parts: CitationPart[] = []
@@ -366,7 +381,12 @@ async function translateSelection(): Promise<void> {
           :data-page="group.page"
         >
           <h4 class="group-title">p.{{ group.page }}</h4>
-          <div v-for="block in group.blocks" :key="block.id" class="bilingual-block">
+          <div
+            v-for="block in group.blocks"
+            :key="block.id"
+            :class="['bilingual-block', block.kind ? `kind-${block.kind}` : '']"
+          >
+            <span v-if="kindLabel(block.kind)" class="kind-tag">{{ kindLabel(block.kind) }}</span>
             <p
               class="bilingual-source"
               @mouseenter="startHover($event, block)"
@@ -489,6 +509,46 @@ async function translateSelection(): Promise<void> {
 
 .bilingual-block:last-child {
   border-bottom: none;
+}
+
+.kind-table {
+  padding-left: 8px;
+  border-left: 2px solid var(--series-2);
+  background: rgba(235, 104, 52, 0.06);
+}
+
+.kind-formula {
+  padding-left: 8px;
+  border-left: 2px solid var(--series-3);
+  background: rgba(98, 80, 214, 0.05);
+}
+
+.kind-figure_caption {
+  padding-left: 8px;
+  border-left: 2px solid var(--petrol);
+  background: rgba(47, 93, 98, 0.05);
+}
+
+.kind-table .bilingual-source,
+.kind-formula .bilingual-source {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.kind-table .bilingual-source {
+  white-space: pre-line;
+}
+
+.kind-tag {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
 }
 
 .bilingual-source {
