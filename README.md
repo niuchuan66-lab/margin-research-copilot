@@ -1,12 +1,25 @@
 # Margin · 科研助手
 
-面向「2026 第九届传智杯 · AI 大模型创新应用挑战赛」的全栈科研助手骨架。  
+面向「2026 第九届传智杯 · AI 大模型创新应用挑战赛」的全栈科研助手。  
 从文献导入开始，覆盖解析、抗幻觉问答、双语阅读、发现、引用图谱与写作辅助。
 
-> 当前状态：**可运行原型**。已接入 DeepSeek、扫描件 OCR、长文档异步解析、语义去重与 SQLite 持久化。  
+> 当前状态：**可运行版本**。六大模块全部实现；在初版基础上完成混合检索、段落级版本差异、工具调用 Agent、中英双栏同步阅读、解析 kind 标记与稳定性保活。后端 79 个测试、Ruff、前端类型检查与生产构建均通过。  
 > 线上演示：<https://niuchuanbo-margin-research-copilot.ms.show>  
 > 项目书：[docs/项目书.md](docs/项目书.md)  
+> 技术文档 PDF：[docs/Margin科研助手-技术文档.pdf](docs/Margin科研助手-技术文档.pdf)  
+> 演示视频脚本：[docs/演示视频脚本.md](docs/演示视频脚本.md)  
 > 后续改进方案：[docs/Qoder后续技术方案.md](docs/Qoder后续技术方案.md)
+
+## 提交信息
+
+| 项 | 内容 |
+|---|---|
+| 赛道 | StudyHack 学习科研赛道（个人赛） |
+| 参赛者 | niuchuanbo |
+| 代码仓库 | <https://github.com/niuchuan66-lab/margin-research-copilot>（Public，Apache-2.0） |
+| 在线演示 | <https://niuchuanbo-margin-research-copilot.ms.show>（无需登录） |
+| 技术文档 | 17 页 PDF，源文件为 `docs/项目书.md` |
+| 演示视频 | 5–8 分钟、1080p、普通话，脚本见 `docs/演示视频脚本.md` |
 
 ## 六个模块与页面
 
@@ -29,15 +42,17 @@ Vue 3 + Vite + Pinia
   └─ fetch + SSE       流式回答与 Agent 过程
             │  /api/v1
 FastAPI（Python 3.11+）
-  ├─ LangGraph         plan → retrieve → answer → verify
-  ├─ LlamaIndex        chunk / index / query
-  ├─ Qdrant + BGE-M3   向量检索与重排
-  ├─ Docling           PDF 结构化解析（默认后端）
+  ├─ Agent            规则路由 + LLM Planner + 工具注册表 + Python 沙箱
+  ├─ LangGraph        可选编排；缺失时顺序执行 plan → retrieve → answer → verify
+  ├─ 检索             BM25 + 关键词重叠（进程内）+ 可选向量腿
+  ├─ LlamaIndex       可选适配器（未安装不影响启动）
+  ├─ Qdrant + BGE-M3  可选向量检索
+  ├─ Docling          可选结构化解析（默认回退 pypdfium2 + RapidOCR）
   ├─ RapidOCR / PaddleOCR  扫描件 OCR
-  ├─ GROBID            References / 元数据
-  ├─ pypdfium2         页面栅格化（避免 PyMuPDF）
+  ├─ GROBID           可选元数据服务（缺失时正则解析 References）
+  ├─ pypdfium2         页面栅格化与字符坐标（避免 PyMuPDF）
   ├─ NetworkX          PageRank / 中心度
-  └─ SQLite（本地）/ PostgreSQL / Valkey
+  └─ SQLite（本地）；PostgreSQL / Valkey 为可选扩展
 ```
 
 解析层统一输出：
@@ -135,7 +150,29 @@ docker compose -f docker-compose.prod.yml up --build
 
 前端在 http://localhost:8080。
 
-### 3. 本地开发
+### 3. 部署到魔搭创空间（在线演示）
+
+线上实例使用同一份 `Dockerfile`：
+
+1. 创空间「设置」里配置 Secret `LLM_API_KEY`，普通环境变量配置 `LLM_BASE_URL`、`LLM_MODEL`（需要向量检索时再加 `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL`）；
+2. 用 Git 方式更新代码，仓库地址与默认分支以创空间页面显示的克隆命令为准：
+
+```bash
+git remote add modelscope https://www.modelscope.cn/studios/<user>/<studio>.git
+git push modelscope main:master
+```
+
+3. 平台按 Dockerfile 重新构建，容器端口 7860；构建完成后访问 `https://<user>-<studio>.ms.show`；
+4. 验证部署版本与能力：
+
+```bash
+python backend/scripts/keepalive.py --once --url https://<user>-<studio>.ms.show/api/v1/health
+curl -s -H "User-Agent: Mozilla/5.0" https://<user>-<studio>.ms.show/api/v1/health
+```
+
+注意：`.env`、`.env.modelscope` 均被 gitignore，密钥只放创空间 Secret；`ms.show` 网关会拒绝空 User-Agent 的请求，探活脚本已带 UA。
+
+### 4. 本地开发
 
 后端需要 Python 3.11+：
 
