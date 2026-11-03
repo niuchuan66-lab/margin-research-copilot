@@ -117,6 +117,17 @@ export interface AnswerResponse {
   grounded: boolean
 }
 
+export interface AgentPlanStep {
+  tool: string
+  args: Record<string, unknown>
+}
+
+export interface ChatArtifact {
+  kind: 'library'
+  label: string
+  paper_id?: string
+}
+
 export interface DiscoveryHit {
   source: string
   title: string

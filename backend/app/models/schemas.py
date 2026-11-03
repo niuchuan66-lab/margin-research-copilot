@@ -176,6 +176,11 @@ class AnswerResponse(BaseModel):
     grounded: bool = False
 
 
+class AgentRunRequest(BaseModel):
+    question: str = Field(min_length=2, max_length=4000)
+    paper_ids: list[str] = Field(default_factory=list)
+
+
 class TranslationRequest(BaseModel):
     paper_id: str
     block_ids: list[str] = Field(default_factory=list)

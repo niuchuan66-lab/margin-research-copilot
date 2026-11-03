@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 
 import AgentTrace from '@/components/AgentTrace.vue'
 import CitationChip from '@/components/CitationChip.vue'
@@ -97,7 +97,10 @@ function openCitation(citation: Citation): void {
               <span v-if="message.model" class="faint">· {{ message.model }}</span>
             </div>
             <p class="message-content">
-              {{ message.content || (message.pending ? '正在检索原文…' : '') }}
+              {{
+                message.content ||
+                (message.pending ? (message.agent ? '正在执行任务…' : '正在检索原文…') : '')
+              }}
             </p>
             <div v-if="message.citations.length" class="citation-list">
               <CitationChip
@@ -106,6 +109,16 @@ function openCitation(citation: Citation): void {
                 :citation="citation"
                 @select="openCitation"
               />
+            </div>
+            <div v-if="message.artifacts.length" class="artifact-list">
+              <RouterLink
+                v-for="(artifact, index) in message.artifacts"
+                :key="`${artifact.paper_id ?? 'library'}-${index}`"
+                class="artifact-link"
+                to="/library"
+              >
+                {{ artifact.label }}
+              </RouterLink>
             </div>
             <AgentTrace :trace="message.trace" />
           </article>
@@ -116,10 +129,32 @@ function openCitation(citation: Citation): void {
             v-model="draft"
             class="textarea"
             rows="2"
-            placeholder="问一个具体问题，越具体越容易定位到原文…"
+            :placeholder="
+              chat.agentMode
+                ? 'Agent 模式：可直接说「下载这篇 arXiv 论文」「帮我画个雷达图」…'
+                : '问一个具体问题，越具体越容易定位到原文…'
+            "
             @keydown.enter.exact.prevent="send"
           ></textarea>
           <div class="composer-row">
+            <div class="mode-toggle" role="group" aria-label="回答模式">
+              <button
+                class="mode-btn"
+                :class="{ active: !chat.agentMode }"
+                type="button"
+                @click="chat.setAgentMode(false)"
+              >
+                快速问答
+              </button>
+              <button
+                class="mode-btn"
+                :class="{ active: chat.agentMode }"
+                type="button"
+                @click="chat.setAgentMode(true)"
+              >
+                Agent 模式
+              </button>
+            </div>
             <span class="faint mono">
               {{ selectedCount ? `检索 ${selectedCount} 篇` : '未选择论文时检索全部' }}
             </span>
@@ -244,6 +279,51 @@ function openCitation(citation: Citation): void {
   flex-direction: column;
   gap: 6px;
   margin: 10px 0;
+}
+
+.artifact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.artifact-link {
+  padding: 4px 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 14px;
+  color: var(--ink-2);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.artifact-link:hover {
+  border-color: var(--oxblood);
+  color: var(--oxblood);
+}
+
+.mode-toggle {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 16px;
+  background: var(--paper-2);
+}
+
+.mode-btn {
+  padding: 3px 12px;
+  border: none;
+  border-radius: 13px;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mode-btn.active {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .composer {

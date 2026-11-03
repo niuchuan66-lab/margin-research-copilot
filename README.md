@@ -13,7 +13,7 @@
 | 赛题模块 | 前端页面 | 后端入口 |
 |---|---|---|
 | PDF 管理与细粒度解析、语义去重 | `/library` | `POST /api/v1/papers`、`POST /api/v1/papers/{id}/parse` |
-| 抗幻觉 RAG 与多文推理 | `/chat`、`/reader/:id` | `POST /api/v1/qa/ask`、`/qa/stream` |
+| 抗幻觉 RAG 与多文推理 | `/chat`、`/reader/:id` | `POST /api/v1/qa/ask`、`/qa/stream`、`/agent/run` |
 | 版式阅读、引用跳转、双语联动 | `/reader/:id` | `GET /reader/{id}/anchors`、`POST /reader/translate` |
 | 论文检索、追踪与推荐 | `/discovery` | `POST /discovery/search`、`/discovery/recommend` |
 | 引用图谱、基石节点、综述 | `/graph` | `POST /graph/build`、`POST /graph/{id}/survey` |
@@ -234,7 +234,7 @@ OCR_MAX_PAGES=80       # 长扫描件最多 OCR 的页数；0 表示不限制
 backend/
   app/
     api/v1/          papers / qa / reader / discovery / graph / writing / health
-    agent/           LangGraph 状态机与提示词
+    agent/           LangGraph 状态机、工具注册表、意图路由与沙箱执行器
     services/        parsing / dedup / indexing / qa / translation / discovery / graph / writing
     models/          Pydantic 数据契约
     db/              PostgreSQL 模型与会话（可选）
@@ -266,6 +266,7 @@ pdf/                 官方测试 PDF 放置说明（*.pdf 不进仓库）
 | GET | `/api/v1/papers/{id}/file` | 原始 PDF |
 | POST | `/api/v1/qa/ask` | 带引用的回答 |
 | POST/GET | `/api/v1/qa/stream` | SSE 流式回答 |
+| POST | `/api/v1/agent/run` | SSE Agent 工具调用（plan → tool_* → answer） |
 | GET | `/api/v1/reader/{id}/anchors` | 文本块 + 页码 + bbox |
 | GET | `/api/v1/reader/{id}/outline` | 标题树（1–3 级） |
 | GET | `/api/v1/reader/{id}/references` | 参考文献条目 + 页码 + bbox |
@@ -308,6 +309,17 @@ python scripts/eval_golden.py --legacy   # A/B 对比旧的重叠检索
 - **交互**：三组折叠列表，点击条目跳转对应页并高亮 bbox。
 
 验证（真实数据 v1/v7）：整体相似度 0.7174，47 处变化（25 改写 / 14 新增 / 8 删除），每条差异均带页码锚点。
+
+## Agent 工具调用
+
+问答页提供「快速问答 / Agent 模式」开关。Agent 模式把自然语言请求编排成工具计划执行：
+
+- **意图路由**：规则优先（arXiv 下载/检索、CSV 出图、版本对比、大纲、综述、未来方向、图谱、Python 计算），未命中时由 LLM Planner 生成计划（严格 JSON，最多 3 步），仍失败则回退到库内问答 `library.answer`；
+- **工具注册表**（10 个）：`library.search` / `library.answer`、`arxiv.search` / `arxiv.download`、`graph.build` / `graph.survey` / `graph.future_work`、`writing.outline` / `writing.chart`、`python.exec`；
+- **Python 沙箱**：AST 白名单（仅 `math/statistics/csv/json/io/re`，禁 `open/eval/exec`、下划线属性、装饰器等）+ 独立子进程（`python -I`）+ 8 秒超时 + 8KB 输出截断，用户代码绝不进入 API 进程；
+- **SSE 过程**：`plan → tool_start/tool_result* → answer → citations → done`，前端实时追加工具名、参数摘要与结果摘要到过程面板，不展示内部数据；
+- **去书架**：`arxiv.download` 成功后自动解析入库（后台任务），回答中给出「去书架查看」入口；
+- **占位符**：计划支持 `$graph_id` 等上一步产出引用（如 `graph.build → graph.survey`）。
 
 ## 测试数据
 
