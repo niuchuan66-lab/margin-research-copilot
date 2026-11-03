@@ -1,1 +1,0 @@
-{"success":true,"request_id":"95e7ddd9-68df-4a2e-b45f-9621f4a01953","data":{"hardware":[{"name":"platform/2v-cpu-8g-mem","resource_type":"free","supported_sdk_types":["gradio","streamlit","docker","static"]}]}}

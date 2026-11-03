@@ -27,6 +27,9 @@ data/
 pdf/*.pdf
 !pdf/README.md
 
+# Local ModelScope deployment scratch
+.ms_*
+
 # Local agent tooling (third-party skills are local dev tools)
 .claude/
 vendor/
