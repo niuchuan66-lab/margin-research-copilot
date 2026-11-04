@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
 import AgentTrace from '@/components/AgentTrace.vue'
@@ -55,6 +55,7 @@ const diffLoading = ref(false)
 const diffError = ref('')
 const zoom = ref(1)
 const focusMode = ref(false)
+const assistantOpen = ref(false)
 
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 4
@@ -70,6 +71,19 @@ function zoomOut(): void {
 
 function resetZoom(): void {
   zoom.value = 1
+}
+
+function toggleFocus(): void {
+  focusMode.value = !focusMode.value
+  if (focusMode.value) {
+    assistantOpen.value = false
+  }
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && assistantOpen.value) {
+    assistantOpen.value = false
+  }
 }
 
 const groupedChanges = computed(() => {
@@ -113,6 +127,7 @@ async function load(): Promise<void> {
     highlightRefId.value = ''
     zoom.value = 1
     focusMode.value = false
+    assistantOpen.value = false
     const queryPage = Number(route.query.page)
     page.value = Number.isFinite(queryPage) && queryPage > 0 ? queryPage : 1
     await loadPageBlocks()
@@ -155,7 +170,13 @@ async function loadPageBlocks(): Promise<void> {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  void load()
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
 watch(() => route.params.id, load)
 watch(() => page.value, () => {
   void loadPageBlocks()
@@ -448,7 +469,7 @@ function trimmedChangeText(change: VersionChange): string {
               class="btn btn-ghost btn-small"
               :class="{ 'btn-active': focusMode }"
               type="button"
-              @click="focusMode = !focusMode"
+              @click="toggleFocus"
             >
               {{ focusMode ? '退出专注' : '专注原文' }}
             </button>
@@ -558,10 +579,42 @@ function trimmedChangeText(change: VersionChange): string {
         </div>
       </div>
 
-      <aside class="panel reader-assistant">
+    </div>
+
+    <Teleport to="body">
+      <button
+        v-if="!assistantOpen && !focusMode"
+        class="assistant-tab"
+        type="button"
+        aria-controls="reader-assistant"
+        aria-label="打开论文问答"
+        @click="assistantOpen = true"
+      >
+        <span class="assistant-tab-label">问论文</span>
+        <span class="assistant-tab-dot" aria-hidden="true"></span>
+      </button>
+
+      <div
+        v-if="assistantOpen"
+        class="assistant-backdrop"
+        aria-hidden="true"
+        @click="assistantOpen = false"
+      ></div>
+
+      <aside
+        v-if="assistantOpen"
+        id="reader-assistant"
+        class="panel reader-assistant"
+        aria-label="论文问答"
+      >
         <div class="panel-head">
           <span class="panel-title">问这篇论文</span>
-          <span class="mono faint">RAG</span>
+          <span class="row">
+            <span class="mono faint">RAG</span>
+            <button class="btn btn-ghost btn-small" type="button" @click="assistantOpen = false">
+              收起
+            </button>
+          </span>
         </div>
         <div class="panel-body stack">
           <form class="stack" @submit.prevent="ask">
@@ -593,7 +646,7 @@ function trimmedChangeText(change: VersionChange): string {
           </p>
         </div>
       </aside>
-    </div>
+    </Teleport>
   </section>
 </template>
 
@@ -606,13 +659,12 @@ function trimmedChangeText(change: VersionChange): string {
 
 .reader-grid {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 360px;
+  grid-template-columns: 200px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
 
-.reader-outline,
-.reader-assistant {
+.reader-outline {
   position: sticky;
   top: 76px;
   max-height: calc(100vh - 100px);
@@ -718,7 +770,6 @@ function trimmedChangeText(change: VersionChange): string {
 }
 
 .reader-grid.is-focus .reader-outline,
-.reader-grid.is-focus .reader-assistant,
 .reader-grid.is-focus .reader-main > .bilingual-pane {
   display: none;
 }
@@ -735,14 +786,98 @@ function trimmedChangeText(change: VersionChange): string {
 }
 
 .pdf-panel {
-  flex: 1.15;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
 }
 
 .reader-main > .bilingual-pane {
-  flex: 1;
+  flex: 0 0 360px;
+  width: 360px;
   min-width: 0;
+}
+
+.assistant-tab {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 10px;
+  border: 1px solid var(--ink);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 13px;
+  transform: translateY(-50%);
+  cursor: pointer;
+  box-shadow: -2px 2px 10px rgba(29, 36, 32, 0.16);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.assistant-tab:hover {
+  border-color: var(--oxblood);
+  background: var(--oxblood);
+}
+
+.assistant-tab-label {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.18em;
+}
+
+.assistant-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--petrol);
+}
+
+.assistant-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: transparent;
+}
+
+.reader-assistant {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  width: min(400px, calc(100vw - 32px));
+  overflow: hidden;
+  border-radius: 10px;
+  box-shadow: 0 18px 46px rgba(29, 36, 32, 0.22);
+  animation: assistant-in 180ms ease both;
+}
+
+.reader-assistant .panel-head {
+  flex: none;
+}
+
+.reader-assistant .panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+@keyframes assistant-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .ref-flash {
@@ -870,25 +1005,29 @@ function trimmedChangeText(change: VersionChange): string {
   gap: 6px;
 }
 
-@media (max-width: 1200px) {
-  .reader-grid {
-    grid-template-columns: 200px minmax(0, 1fr);
-  }
-
-  .reader-assistant {
-    position: static;
-    grid-column: 1 / -1;
-    max-height: none;
-  }
-}
-
 @media (max-width: 1100px) {
   .reader-main {
     flex-direction: column;
   }
 
   .reader-main > .bilingual-pane {
+    flex: none;
+    width: auto;
     max-height: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .assistant-backdrop {
+    background: rgba(29, 36, 32, 0.34);
+  }
+
+  .reader-assistant {
+    top: 64px;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: auto;
   }
 }
 
