@@ -14,17 +14,14 @@
 
 | 项 | 内容 |
 |---|---|
-| 赛道 | StudyHack 学习科研赛道（个人赛） |
-| 参赛者 | niuchuanbo |
+| 作者 | niuchuanbo |
 | 代码仓库 | <https://github.com/niuchuan66-lab/margin-research-copilot>（Public，Apache-2.0） |
 | 在线演示 | <https://niuchuanbo-margin-research-copilot.ms.show>（无需登录） |
 | Qoder Sites | <https://margin-research-copilot-7pzywfi72c7.qoder.zone>（公开，Hash 路由） |
-| 技术文档 | 17 页 PDF，源文件为 `docs/项目书.md` |
-| 演示视频 | 5–8 分钟、1080p、普通话，脚本见 `docs/演示视频脚本.md` |
 
 ## 六个模块与页面
 
-| 赛题模块 | 前端页面 | 后端入口 |
+| 模块 | 前端页面 | 后端入口 |
 |---|---|---|
 | PDF 管理与细粒度解析、语义去重 | `/library` | `POST /api/v1/papers`、`POST /api/v1/papers/{id}/parse` |
 | 抗幻觉 RAG 与多文推理 | `/chat`、`/reader/:id` | `POST /api/v1/qa/ask`、`/qa/stream`、`/agent/run` |
