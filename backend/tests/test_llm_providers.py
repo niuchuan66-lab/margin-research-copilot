@@ -25,6 +25,14 @@ def test_preset_uses_its_own_key() -> None:
     assert provider.api_key == "ms-test"
 
 
+def test_preset_accepts_sdk_token_alias() -> None:
+    chain = build_llm_chain(
+        {"LLM_PROVIDER": "modelscope", "MODELSCOPE_API_TOKEN": "ms-sdk"}
+    )
+
+    assert chain[0].api_key == "ms-sdk"
+
+
 def test_preset_ignores_leftover_endpoint_settings() -> None:
     chain = build_llm_chain(
         {

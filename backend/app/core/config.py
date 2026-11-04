@@ -45,7 +45,7 @@ class LLMProvider:
 
 
 def _provider_key(env: Mapping[str, str], name: str) -> str:
-    for suffix in ("API_KEY", "TOKEN"):
+    for suffix in ("API_KEY", "API_TOKEN", "TOKEN"):
         value = env.get(f"{name.upper()}_{suffix}", "").strip()
         if value:
             return value
