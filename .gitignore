@@ -36,6 +36,9 @@ pdf/*.pdf
 .claude/
 vendor/
 
+# Qoder Sites binding descriptor
+*.qoder.site
+
 # OS / editors
 .DS_Store
 Thumbs.db
