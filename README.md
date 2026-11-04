@@ -122,7 +122,7 @@ copy .env.example .env
 
 | 服务商 | `LLM_PROVIDER` | Key 变量 | 默认模型 | 费用 |
 |---|---|---|---|---|
-| 魔搭 ModelScope | `modelscope` | `MODELSCOPE_API_KEY` | `Qwen/Qwen3.5-35B-A3B` | 免费，约 2000 次/天 |
+| 魔搭 ModelScope | `modelscope` | `MODELSCOPE_API_KEY` | `Qwen/Qwen3.5-35B-A3B` | 免费额度按魔粒计费，约 250 魔粒/天 |
 | 智谱 BigModel | `zhipu` | `ZHIPU_API_KEY` | `glm-4.7-flash` | 免费 |
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` | 按量付费 |
 | 通义千问 DashScope | `dashscope` | `DASHSCOPE_API_KEY` | `qwen-plus` | 有免费额度 |
@@ -134,7 +134,7 @@ copy .env.example .env
 
 免费方案的两个注意点：
 
-- 魔搭 API-Inference 需要先在 modelscope.cn 绑定阿里云账号并完成实名认证，再到 `modelscope.cn/my/access/token` 创建访问令牌；当日额度用完会返回 429。
+- 魔搭 API-Inference 需要先在 modelscope.cn 绑定阿里云账号并完成实名认证，再到 `modelscope.cn/my/access/token` 创建访问令牌。免费额度按“魔粒”计费（轻量模型约 0.5、主流约 1、旗舰约 2 魔粒/次），登录与绑定阿里云共约 250 魔粒/天，当日额度用完会返回 429。
 - 智谱 `glm-4.7-flash` 手机号注册即可，官方定价为 0 元，适合作为长期兜底。
 
 `LLM_FALLBACKS` 可以配置失败切换。免费主用、付费兜底：
