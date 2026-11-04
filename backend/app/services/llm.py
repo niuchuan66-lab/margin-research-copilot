@@ -64,11 +64,12 @@ async def chat(
     return None
 
 
-def probe(timeout: float = 4.0) -> tuple[str | None, float | None]:
+def probe(timeout: float = 8.0) -> tuple[str | None, float | None]:
     """One-token round trip through the chain within a total time budget.
 
-    Returns the provider that answered and its latency in milliseconds; both
-    are None when every provider is unreachable.
+    Free tiers need a few seconds to warm up, so the default budget is larger
+    than a paid provider's. Returns the provider that answered and its latency
+    in milliseconds; both are None when every provider is unreachable.
     """
 
     if not settings.llm_chain:
