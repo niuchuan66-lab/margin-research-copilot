@@ -21,3 +21,16 @@ export function formatDate(value: string): string {
 export function truncate(value: string, length = 90): string {
   return value.length > length ? `${value.slice(0, length - 1)}…` : value
 }
+
+const HTML_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}
+
+export function formatAnswer(text: string): string {
+  const escaped = text.replace(/[&<>"']/g, (char) => HTML_ESCAPES[char] ?? char)
+  return escaped.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+}

@@ -4,6 +4,7 @@ import { RouterLink, useRouter } from 'vue-router'
 
 import AgentTrace from '@/components/AgentTrace.vue'
 import CitationChip from '@/components/CitationChip.vue'
+import { formatAnswer } from '@/lib/format'
 import { useChatStore } from '@/stores/chat'
 import { usePapersStore } from '@/stores/papers'
 import type { Citation } from '@/types'
@@ -96,12 +97,10 @@ function openCitation(citation: Citation): void {
               {{ message.role === 'user' ? '你' : 'Margin' }}
               <span v-if="message.model" class="faint">· {{ message.model }}</span>
             </div>
-            <p class="message-content">
-              {{
-                message.content ||
-                (message.pending ? (message.agent ? '正在执行任务…' : '正在检索原文…') : '')
-              }}
-            </p>
+            <p class="message-content" v-html="formatAnswer(
+              message.content ||
+              (message.pending ? (message.agent ? '正在执行任务…' : '正在检索原文…') : ''),
+            )"></p>
             <div v-if="message.citations.length" class="citation-list">
               <CitationChip
                 v-for="citation in message.citations"

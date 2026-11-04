@@ -7,7 +7,7 @@ import BilingualPane from '@/components/BilingualPane.vue'
 import CitationChip from '@/components/CitationChip.vue'
 import PdfViewer from '@/components/PdfViewer.vue'
 import { api } from '@/api/endpoints'
-import { errorMessage } from '@/lib/format'
+import { errorMessage, formatAnswer } from '@/lib/format'
 import type {
   Block,
   Citation,
@@ -630,7 +630,7 @@ function trimmedChangeText(change: VersionChange): string {
           </form>
 
           <div v-if="answer" class="answer-block">
-            <p class="answer-text">{{ answer }}</p>
+            <p class="answer-text" v-html="formatAnswer(answer)"></p>
             <div v-if="citations.length" class="citation-list">
               <CitationChip
                 v-for="citation in citations"
