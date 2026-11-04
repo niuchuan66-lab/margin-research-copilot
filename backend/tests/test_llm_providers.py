@@ -25,18 +25,34 @@ def test_preset_uses_its_own_key() -> None:
     assert provider.api_key == "ms-test"
 
 
-def test_explicit_base_and_model_override_preset() -> None:
+def test_preset_ignores_leftover_endpoint_settings() -> None:
     chain = build_llm_chain(
         {
             "LLM_PROVIDER": "zhipu",
             "ZHIPU_API_KEY": "z-test",
-            "LLM_BASE_URL": "https://gateway.example/v1",
-            "LLM_MODEL": "custom-model",
+            "LLM_BASE_URL": "https://api.deepseek.com/v1",
+            "LLM_MODEL": "deepseek-chat",
+            "LLM_API_KEY": "old-key",
+        }
+    )
+
+    assert chain[0].base_url == LLM_PRESETS["zhipu"][0]
+    assert chain[0].model == LLM_PRESETS["zhipu"][1]
+    assert chain[0].api_key == "z-test"
+
+
+def test_provider_specific_endpoint_override() -> None:
+    chain = build_llm_chain(
+        {
+            "LLM_PROVIDER": "modelscope",
+            "MODELSCOPE_API_KEY": "ms-test",
+            "MODELSCOPE_BASE_URL": "https://gateway.example/v1",
+            "MODELSCOPE_MODEL": "Qwen/Qwen3.5-27B",
         }
     )
 
     assert chain[0].base_url == "https://gateway.example/v1"
-    assert chain[0].model == "custom-model"
+    assert chain[0].model == "Qwen/Qwen3.5-27B"
 
 
 def test_generic_key_works_without_provider() -> None:
@@ -59,6 +75,22 @@ def test_fallbacks_need_their_own_key_and_keep_order() -> None:
     )
 
     assert [provider.name for provider in chain] == ["deepseek", "zhipu"]
+
+
+def test_free_primary_with_paid_fallback() -> None:
+    chain = build_llm_chain(
+        {
+            "LLM_PROVIDER": "modelscope",
+            "MODELSCOPE_API_KEY": "ms-free",
+            "LLM_API_KEY": "old-paid-key",
+            "LLM_FALLBACKS": "deepseek",
+            "DEEPSEEK_API_KEY": "paid",
+        }
+    )
+
+    assert [provider.name for provider in chain] == ["modelscope", "deepseek"]
+    assert chain[0].api_key == "ms-free"
+    assert chain[1].api_key == "paid"
 
 
 def test_missing_keys_mean_unconfigured() -> None:

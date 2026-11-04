@@ -55,26 +55,35 @@ def _provider_key(env: Mapping[str, str], name: str) -> str:
 def build_llm_chain(env: Mapping[str, str]) -> tuple[LLMProvider, ...]:
     """Primary provider plus optional fallbacks, resolved from the environment.
 
-    `LLM_PROVIDER` selects a preset; explicit `LLM_BASE_URL` / `LLM_MODEL` still
-    override it. `LLM_FALLBACKS` lists presets with their own key, so a
-    rate-limited free tier degrades to the next endpoint instead of failing.
+    A known `LLM_PROVIDER` owns its endpoint and model, so leftover
+    `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` from a previous paid setup
+    cannot misroute the new primary. Use `<NAME>_BASE_URL` / `<NAME>_MODEL` for
+    a gateway and `<NAME>_API_KEY` for the key instead. Without a known
+    provider, the generic variables describe one custom endpoint.
+    `LLM_FALLBACKS` lists presets with their own key, so a rate-limited free
+    tier degrades to the next endpoint instead of failing.
     """
 
     name = env.get("LLM_PROVIDER", "").strip().lower()
     preset = LLM_PRESETS.get(name)
-    base_url = env.get("LLM_BASE_URL", "").strip() or (preset[0] if preset else "")
-    api_key = env.get("LLM_API_KEY", "").strip()
-    if not api_key and preset:
-        api_key = _provider_key(env, name)
-    model = env.get("LLM_MODEL", "").strip()
-    if not model:
-        model = preset[1] if preset else "deepseek-chat"
 
     chain: list[LLMProvider] = []
     seen: set[tuple[str, str]] = set()
-    if base_url and api_key:
-        chain.append(LLMProvider(name or "custom", base_url, api_key, model))
-        seen.add((base_url, model))
+    if preset:
+        base_url = env.get(f"{name.upper()}_BASE_URL", "").strip() or preset[0]
+        model = env.get(f"{name.upper()}_MODEL", "").strip() or preset[1]
+        api_key = _provider_key(env, name) or env.get("LLM_API_KEY", "").strip()
+        if api_key:
+            chain.append(LLMProvider(name, base_url, api_key, model))
+            seen.add((base_url, model))
+    else:
+        base_url = env.get("LLM_BASE_URL", "").strip()
+        api_key = env.get("LLM_API_KEY", "").strip()
+        model = env.get("LLM_MODEL", "").strip() or "deepseek-chat"
+        if base_url and api_key:
+            chain.append(LLMProvider("custom", base_url, api_key, model))
+            seen.add((base_url, model))
+
     for raw in env.get("LLM_FALLBACKS", "").split(","):
         fallback = raw.strip().lower()
         if fallback not in LLM_PRESETS:

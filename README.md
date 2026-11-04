@@ -128,6 +128,8 @@ copy .env.example .env
 | 通义千问 DashScope | `dashscope` | `DASHSCOPE_API_KEY` | `qwen-plus` | 有免费额度 |
 | OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-4.1-mini` | 按量付费 |
 
+写了一个已知 `LLM_PROVIDER` 时，地址和模型由预设接管，残留的 `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` 不会影响它；要换网关或模型名就用 `MODELSCOPE_BASE_URL` / `MODELSCOPE_MODEL` 这类服务商专属变量（把 `MODELSCOPE` 换成对应大写的服务商名）。
+
 也可以完全自定义：不写 `LLM_PROVIDER`，直接填 `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`（本地 Ollama 可填 `http://127.0.0.1:11434/v1`，Key 随便填一个非空值）。
 
 免费方案的两个注意点：
@@ -135,13 +137,22 @@ copy .env.example .env
 - 魔搭 API-Inference 需要先在 modelscope.cn 绑定阿里云账号并完成实名认证，再到 `modelscope.cn/my/access/token` 创建访问令牌；当日额度用完会返回 429。
 - 智谱 `glm-4.7-flash` 手机号注册即可，官方定价为 0 元，适合作为长期兜底。
 
-`LLM_FALLBACKS` 可以配置失败切换，例如主用付费 Key、免费额度兜底：
+`LLM_FALLBACKS` 可以配置失败切换。免费主用、付费兜底：
+
+```bash
+LLM_PROVIDER=modelscope
+MODELSCOPE_API_KEY=ms-...
+LLM_FALLBACKS=deepseek
+DEEPSEEK_API_KEY=sk-...
+```
+
+反过来主用付费、免费兜底，把顺序换一下即可：
 
 ```bash
 LLM_PROVIDER=deepseek
-DEEPSEEK_API_KEY=...
+DEEPSEEK_API_KEY=sk-...
 LLM_FALLBACKS=modelscope,zhipu
-MODELSCOPE_API_KEY=...
+MODELSCOPE_API_KEY=ms-...
 ZHIPU_API_KEY=...
 ```
 
