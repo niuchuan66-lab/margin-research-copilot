@@ -14,17 +14,20 @@ from app.services.llm import chat
 
 
 async def main() -> None:
-    print(f"base_url   : {settings.llm_base_url or '(empty)'}")
-    print(f"model      : {settings.llm_model or '(empty)'}")
+    print(f"provider   : {settings.llm_provider or '(none)'}")
+    for provider in settings.llm_chain:
+        print(f"  - {provider.name}: {provider.model} @ {provider.base_url}")
     print(f"configured : {settings.llm_configured}")
     if not settings.llm_configured:
-        print("LLM_API_KEY is empty; the backend will use the extractive fallback.")
+        print("No provider key found; the backend will use the extractive fallback.")
         return
     answer = await chat(
         [{"role": "user", "content": "用一句中文确认你已连通，不要展开。"}],
         max_tokens=80,
     )
-    print(f"answer     : {answer or '(call failed; check key/base_url/network)'}")
+    print(
+        f"answer     : {answer or '(all providers failed; check key/base_url/network)'}"
+    )
 
 
 if __name__ == "__main__":

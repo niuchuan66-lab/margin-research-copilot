@@ -116,18 +116,38 @@ Windows：
 copy .env.example .env
 ```
 
-至少填写 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 才会有生成式回答；不填时走抽取式降级。
+至少配置一个服务商的 Key 才会有生成式回答；不填时走抽取式降级。
 
-常用服务商（都是 OpenAI 兼容接口，改这三项即可）：
+用 `LLM_PROVIDER` 选择预设，Key 放在对应的环境变量里：
 
-| 服务商 | `LLM_BASE_URL` | `LLM_MODEL` |
-|---|---|---|
-| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
-| 通义千问 DashScope | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
-| OpenAI | `https://api.openai.com/v1` | `gpt-4.1-mini` |
-| 本地 Ollama | `http://127.0.0.1:11434/v1` | `qwen2.5:7b`（Key 可填 `ollama`） |
+| 服务商 | `LLM_PROVIDER` | Key 变量 | 默认模型 | 费用 |
+|---|---|---|---|---|
+| 魔搭 ModelScope | `modelscope` | `MODELSCOPE_API_KEY` | `Qwen/Qwen3.5-35B-A3B` | 免费，约 2000 次/天 |
+| 智谱 BigModel | `zhipu` | `ZHIPU_API_KEY` | `glm-4.7-flash` | 免费 |
+| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` | 按量付费 |
+| 通义千问 DashScope | `dashscope` | `DASHSCOPE_API_KEY` | `qwen-plus` | 有免费额度 |
+| OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-4.1-mini` | 按量付费 |
 
-改完 `.env` 需要重启后端。连通性检查（不会打印 Key）：
+也可以完全自定义：不写 `LLM_PROVIDER`，直接填 `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`（本地 Ollama 可填 `http://127.0.0.1:11434/v1`，Key 随便填一个非空值）。
+
+免费方案的两个注意点：
+
+- 魔搭 API-Inference 需要先在 modelscope.cn 绑定阿里云账号并完成实名认证，再到 `modelscope.cn/my/access/token` 创建访问令牌；当日额度用完会返回 429。
+- 智谱 `glm-4.7-flash` 手机号注册即可，官方定价为 0 元，适合作为长期兜底。
+
+`LLM_FALLBACKS` 可以配置失败切换，例如主用付费 Key、免费额度兜底：
+
+```bash
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=...
+LLM_FALLBACKS=modelscope,zhipu
+MODELSCOPE_API_KEY=...
+ZHIPU_API_KEY=...
+```
+
+主服务商返回 429、超时或 5xx 时，会按顺序自动尝试下一个；每个兜底服务商只使用自己的 Key，不会把主 Key 发给别家。全部失败才回到抽取式降级。
+
+改完 `.env` 需要重启后端。连通性检查（会打印服务商链路，但不会打印 Key）：
 
 ```bash
 cd backend && python check_llm.py
@@ -156,7 +176,7 @@ docker compose -f docker-compose.prod.yml up --build
 
 线上实例使用同一份 `Dockerfile`：
 
-1. 创空间「设置」里配置 Secret `LLM_API_KEY`，普通环境变量配置 `LLM_BASE_URL`、`LLM_MODEL`（需要向量检索时再加 `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL`）；
+1. 创空间「设置」里配置 LLM：免费方案用 Secret `MODELSCOPE_API_KEY`（或 `ZHIPU_API_KEY`）+ 环境变量 `LLM_PROVIDER=modelscope`（或 `zhipu`）；已有付费 Key 则配 Secret `LLM_API_KEY` + `LLM_PROVIDER=deepseek` 等预设。需要向量检索时再加 `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL`；
 2. 用 Git 方式更新代码，仓库地址与默认分支以创空间页面显示的克隆命令为准：
 
 ```bash

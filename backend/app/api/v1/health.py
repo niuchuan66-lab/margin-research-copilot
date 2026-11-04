@@ -3,15 +3,14 @@ from __future__ import annotations
 import importlib.util
 import socket
 import sys
-import time
 from urllib.parse import urlparse
 
-import httpx
 from fastapi import APIRouter
 
 from app.core.config import settings
 from app.models.schemas import HealthResponse
 from app.services.indexing import get_index
+from app.services.llm import probe as probe_llm
 
 router = APIRouter(tags=["health"])
 
@@ -35,6 +34,7 @@ def health() -> HealthResponse:
     )
     ok = parsing_ready and capabilities["networkx"]
     degraded = [name for name, ready in capabilities.items() if not ready]
+    llm_provider, llm_latency = probe_llm() if settings.llm_configured else (None, None)
     return HealthResponse(
         status="ok" if ok else "degraded",
         app=settings.app_name,
@@ -42,31 +42,10 @@ def health() -> HealthResponse:
         capabilities=capabilities,
         degraded=degraded,
         index_chunks=get_index().count(),
-        llm_latency_ms=_llm_latency_ms(),
+        llm_provider=llm_provider,
+        llm_latency_ms=llm_latency,
         memory_rss_mb=_rss_mb(),
     )
-
-
-def _llm_latency_ms() -> float | None:
-    """One-token chat round trip with a 4s cap; None when unconfigured or down."""
-    if not settings.llm_configured:
-        return None
-    try:
-        started = time.perf_counter()
-        with httpx.Client(timeout=4.0) as client:
-            response = client.post(
-                f"{settings.llm_base_url.rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
-                json={
-                    "model": settings.llm_model,
-                    "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": 1,
-                },
-            )
-            response.raise_for_status()
-        return round((time.perf_counter() - started) * 1000, 1)
-    except Exception:
-        return None
 
 
 def _rss_mb() -> float | None:
